@@ -1,0 +1,1125 @@
+type AtomicInterType        = bool, integer, float, string, date, time;
+type BasicInterType         = AtomicInterType, generic;
+
+type TupleInterType         = tuple(InterType+);
+type RecordInterType        = record([+Symbol -> InterType]);
+type InlineRecordInterType  = inline_record((Symbol, InterType)+);
+
+type TaggedInterType[T]     = tagged(Symbol, T);
+type TaggedInterType        = TaggedInterType[InterType];
+
+type OptionalInterType      = optional(InterType);
+
+type NamedInterType         = named(TypeSymbol);
+
+type CollInterType          = seq(InterType),
+                              set(InterType),
+                              map(KeyInterType, InterType);
+
+type KeyInterType           = integer, string, date, time, generic;
+
+type SymbolInterType        = symbol(Symbol);
+
+type UnionAltInterType      = SymbolInterType, TaggedInterType, NamedInterType;
+type UnionInterType         = union([+UnionAltInterType]);
+
+type InterType              = BasicInterType,
+                              SymbolInterType,
+                              TupleInterType,
+                              RecordInterType,
+                              InlineRecordInterType,
+                              CollInterType,
+                              TaggedInterType,
+                              OptionalInterType,
+                              NamedInterType,
+                              UnionInterType;
+
+////////////////////////////////////////////////////////////////////////////////
+
+type DeclInterType    = SymbolInterType,
+                        RecordInterType,
+                        NamedInterType,
+                        UnionInterType,
+                        TaggedInterType;
+
+type NonDeclInterType = BasicInterType,
+                        CollInterType,
+                        OptionalInterType,
+                        TupleInterType,
+                        InlineRecordInterType;
+
+////////////////////////////////////////////////////////////////////////////////
+
+Symbol symbol(SymbolInterType)  = symbol(s?) = s;
+
+InterType+ field_types(TupleInterType)  = tuple(ts?) = ts;
+
+[+Symbol -> InterType] fields(RecordInterType) = record(fs?) = fs;
+
+Symbol type_tag(TaggedInterType)          = tagged(s?, _) = s;
+T      untagged_type(TaggedInterType[T])  = tagged(_, t?) = t;
+
+TypeSymbol type_symb(NamedInterType)  = named(ts?) = ts;
+
+[+UnionAltInterType] inter_types(UnionInterType) = union(ts?) = ts;
+
+////////////////////////////////////////////////////////////////////////////////
+
+[Symbol] symbols(DeclInterType inter_type, (NamedInterType -> DeclInterType) inter_type_def) =
+  symbol(s?)  = [s],
+  named()     = symbols(inter_type_def(inter_type), inter_type_def),
+  union(ts?)  = [s : t <- ts, s <- symbols(t, inter_type_def)],
+  record()    |
+  tagged()    = [];
+
+
+[Symbol] tags(DeclInterType inter_type, (NamedInterType -> DeclInterType) inter_type_def) =
+  tagged(s?, _) = [s],
+  named()       = tags(inter_type_def(inter_type), inter_type_def),
+  union(ts?)    = [s : t <- ts, s <- tags(t, inter_type_def)],
+  symbol()      |
+  record()      = [];
+
+////////////////////////////////////////////////////////////////////////////////
+
+NeType internal_type(AtomicInterType) =
+  bool        = type_bool,
+  integer     = integer,
+  float       = float_type,
+  string      = type_string,
+  date        = type_date,
+  time        = type_time;
+
+
+implicit prg : CompiledPrg {
+  String input_arg_type(InterType it) {
+    if in(it, declared_types) {
+      fail if not it :: DeclInterType; ## BAD
+      return "Cell.Facades." & input_types_names(it, !) if not is_simplifiable(it);
+    }
+
+    return match (it)
+      bool                = "bool",
+      integer             = "long",
+      float               = "double",
+      date                |
+      time                = "System.DateTime",
+      optional(t?)        = input_arg_obj_type(t),
+      symbol()            |
+      record()            |
+      union()             = undefined,
+      tuple(ts?)          = "(" & append((input_arg_type(t) : t <- ts), ", ") & ")",
+      inline_record(fs?)  = inline_record_native_type(fs),
+      named(n?)           = input_arg_type(named_interface_types_defs(it, !)),
+      seq(t?)             |
+      set(t?)             = input_arg_type(t) & "[]",
+      map(k?, v?)         = "System.Collections.Generic.Dictionary<" & input_arg_type(k) & ", " & input_arg_type(v) & ">",
+      tagged(_, t?)       = input_arg_type(t),
+      string              |
+      generic             = "string";
+  }
+
+
+  String input_arg_obj_type(InterType it) =
+    bool    = "bool?",
+    integer = "long",
+    float   = "double?",
+    _       = input_arg_type(it);
+
+
+  String return_value_type(InterType it) = return_value_type(it, output_types_names);
+
+
+  String return_value_type(InterType it, [DeclInterType -> String] types_names) {
+    if in(it, declared_types) {
+      fail if not it :: DeclInterType; ## BAD
+      return "Cell.Facades." & types_names(it, !) if not is_simplifiable(it);
+    }
+
+    return match (it)
+      bool                = "bool",
+      integer             = "long",
+      float               = "double",
+      string              = "string",
+      date                |
+      time                = "System.DateTime",
+      optional(t?)        = ret_value_obj_type(t, types_names),
+      symbol()            |
+      record()            |
+      union()             = undefined,
+      tuple(ts?)          = "(" & append((return_value_type(t, types_names) : t <- ts), ", ") & ")",
+      inline_record(fs?)  = inline_record_native_type(fs),
+      named()             = return_value_type(named_interface_types_defs(it, !), types_names),
+      seq(t?)             |
+      set(t?)             = return_value_type(t, types_names) & "[]",
+      map(k?, v?)         = "System.Collections.Generic.Dictionary<" &
+                            return_value_type(k, types_names) & ", " &
+                            return_value_type(v, types_names) & ">",
+      tagged(_, t?)       = return_value_type(t, types_names),
+      generic             = "string";
+
+
+    String ret_value_obj_type(InterType it, [DeclInterType -> String] types_names) =
+      bool    = "bool?",
+      integer = "long?",
+      float   = "double?",
+      _       = return_value_type(it, types_names);
+  }
+
+
+  String inline_record_native_type((Symbol, InterType)+ fields) {
+    field_names = adjusted_unambiguous_lower_camel_case_names(set(left(unzip(fields))));
+    native_fields = (input_arg_type(t) & " " & field_names(l) : l, t <- fields);
+    return "(" & append(native_fields, ", ") & ")";
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+implicit prg : CompiledPrg {
+  String* import_code(InterType it, String expr, String action_prefix) =
+    import_code_ex(it, expr, action_prefix);
+
+
+  String* decl_type_import_code(SymbolInterType inter_type, String expr, String action_prefix) {
+    return (action_prefix & "Cell.Runtime.SymbObj.Get(" & symb_idx_qual_name(symbol(inter_type)) & ");");
+  }
+
+  String* decl_type_import_code(TupleInterType inter_type, String expr, String action_prefix) {
+    return tuple_import_code(field_types(inter_type), expr, action_prefix);
+  }
+
+  String* decl_type_import_code(RecordInterType inter_type, String expr, String action_prefix) {
+    return record_import_code(fields(inter_type), expr, action_prefix);
+  }
+
+  String* decl_type_import_code(NamedInterType inter_type, String expr, String action_prefix) {
+    return named_type_import_code(inter_type, expr, action_prefix);
+  }
+
+  String* decl_type_import_code(UnionInterType inter_type, String expr, String action_prefix) {
+    return type_union_import_code(inter_types(inter_type), expr, action_prefix);
+  }
+
+  String* decl_type_import_code(TaggedInterType inter_type, String expr, String action_prefix) {
+    unique_id = printed(_counter_(:any_value_will_do));
+    out_var = "var_" & unique_id;
+    next_action_prefix = "Cell.Runtime.Obj " & out_var & " = ";
+    untagged_type = untagged_type(inter_type);
+    if untagged_type :: <NamedInterType, UnionInterType> and in(untagged_type, declared_types) {
+      type_name = "Cell.Facades." & input_types_names(untagged_type, !);
+      unique_id = printed(_counter_(:any_value_will_do));
+      in_var = "var_" & unique_id;
+      code = (type_name & " " & in_var & " = " & expr & ".value;");
+      code = code & import_code_ex(untagged_type, in_var, next_action_prefix);
+    }
+    else {
+      code = import_code(untagged_type, expr, next_action_prefix);
+    }
+    tag = object(type_tag(inter_type));
+    instr = action_prefix & "Cell.Runtime.Builder.CreateTaggedObj(" & symb_idx_qual_name(tag) & ", " & out_var & ");";
+    return (code | instr);
+
+
+    String* import_code(DeclInterType inter_type, String expr, String action_prefix) =
+      decl_type_import_code(inter_type, expr, action_prefix);
+
+
+    String* import_code(NonDeclInterType inter_type, String expr, String action_prefix) {
+      return import_code_ex(inter_type, expr & ".value", action_prefix);
+    }
+  }
+
+  //////////////////////////////////////////////////////////////////////////////
+
+  String* import_code_ex(InterType it, String expr, String action_prefix) {
+    if in(it, declared_types) {
+      fail if not it :: DeclInterType; ## BAD
+      if not is_simplifiable(it) {
+        type_name = input_types_names(it, !);
+        return (action_prefix & "Cell.Generated.Converters." & decl_type_import_funct_name(type_name) & "(" & expr & ");");
+      }
+    }
+
+    return match (it)
+      bool                = (action_prefix & "Cell.Runtime.SymbObj.Get(" & expr & ");"),
+      integer             = (action_prefix & "Cell.Runtime.IntObj.Get(" & expr & ");"),
+      float               = (action_prefix & "new Cell.Runtime.FloatObj(" & expr & ");"),
+      string              = (action_prefix & "Cell.Runtime.Conversions.StringToObj(" & expr & ");"),
+      date                = (action_prefix & "Cell.Runtime.Conversions.DateToObj(" & expr & ");"),
+      time                = (action_prefix & "Cell.Runtime.Conversions.DateTimeToObj(" & expr & ");"),
+      symbol(s?)          = (action_prefix & "Cell.Runtime.SymbObj.Get(" & symb_idx_qual_name(s) & ");"),
+      tuple(ts?)          = tuple_import_code(ts, expr, action_prefix),
+      inline_record(fs?)  = inline_record_import_code(fs, expr, action_prefix),
+      record()            |
+      union()             = undefined, // They are supposed to always be declared
+      named()             = import_code_ex(named_interface_types_defs(it, !), expr, action_prefix),
+      seq(t?)             = array_import_code(t, expr, action_prefix, "Cell.Runtime.Builder.CreateSeq"),
+      set(t?)             = array_import_code(t, expr, action_prefix, "Cell.Runtime.Builder.CreateSet"),
+      map(k?, v?)         = map_import_code(k, v, expr, action_prefix),
+      tagged()            = tagged_value_import_code(it, expr, action_prefix),
+      optional(t?)        = optional_value_import_code(t, expr, action_prefix),
+      generic             = (action_prefix & "Cell.Runtime.Conversions.ConvertText(" & expr & ");");
+  }
+
+
+  String* named_type_import_code(NamedInterType inter_type, String expr, String action_prefix) =
+    if in(inter_type, declared_types)
+      then (action_prefix & decl_type_import_funct_name(input_types_names(inter_type, !)) & "(" & expr & ");")
+      else import_code_ex(:generic, expr, action_prefix);
+
+
+  String* type_union_import_code([+UnionAltInterType] types, String expr, String action_prefix) {
+    unique_id = printed(_counter_(:any_value_will_do));
+    in_var = "var_" & unique_id;
+    unique_id = printed(_counter_(:any_value_will_do));
+    out_var = "var_" & unique_id;
+
+    is_return = action_prefix == "return "; ## BAD BAD BAD
+
+    code = ("Cell.Runtime.Obj " & out_var & ";" if not is_return);
+    local_action = if is_return then action_prefix else out_var & " = ";
+    for t @ i <- isort(types) {
+      type_name = input_types_names(t, !);
+      code = code & (
+        {if i > 0 then "else " else ""} & "if (" & expr & " is Cell.Facades." & type_name & ") {",
+        "  Cell.Facades." & type_name & " " & in_var & " = (Cell.Facades." & type_name & ") " & expr & ";",
+        "  " & local_action & decl_type_import_funct_name(type_name) & "(" & in_var & ");",
+        "}"
+      );
+    }
+
+    return code & (
+      "else",
+      "  throw Cell.Runtime.ErrorHandler.InternalFail();",
+      action_prefix & out_var & ";" if not is_return
+    );
+  }
+
+
+  String* record_import_code([+Symbol -> InterType] fields, String expr, String action_prefix) {
+    unique_id = printed(_counter_(:any_value_will_do));
+    keys_var = "keys_" & unique_id;
+    values_var = "values_" & unique_id;
+
+    count = |fields|;
+
+    code = (
+      "Cell.Runtime.Obj[] " & keys_var   & " = new Cell.Runtime.Obj[" & printed(count) & "];",
+      "Cell.Runtime.Obj[] " & values_var & " = new Cell.Runtime.Obj[" & printed(count) & "];"
+    );
+
+    field_names = adjusted_unambiguous_lower_camel_case_names(keys(fields));
+    for l, n @ i <- isort(field_names) {
+      code = (code | keys_var & "[" & printed(i) & "] = " & native_expr(object(l), context=:wrapper) & ";");
+      field_expr = expr & "." & field_names(l, !);
+      asgnm_prefix = values_var & "[" & printed(i) & "] = ";
+      code = code & import_code_ex(fields(l, !), field_expr, asgnm_prefix);
+    }
+
+    map_creation_expr = "Cell.Runtime.Builder.CreateMap(" & keys_var & ", " & values_var & ", " & printed(count) & ")";
+    return (code | action_prefix & map_creation_expr & ";");
+  }
+
+
+  String* tuple_import_code(InterType+ types, String expr, String action_prefix) {
+    unique_id = printed(_counter_(:any_value_will_do));
+
+    field_vars = ("field" & printed(i) & "_" & unique_id : t @ i <- types);
+    fields_code = (import_code_ex(t, expr & ".Item" & printed(i+1), "Cell.Runtime.Obj " & field_vars(i) & " = ") : t @ i <- types);
+
+    tuple_instr = action_prefix & "Cell.Runtime.Builder.CreateSeq(new Cell.Runtime.Obj[] {" & append(field_vars, ", ") & "});";
+
+    return (join(fields_code) | tuple_instr);
+  }
+
+
+  String* inline_record_import_code((Symbol, InterType)+ fields, String expr, String action_prefix) {
+    unique_id = printed(_counter_(:any_value_will_do));
+
+    field_vars = ("field" & printed(i) & "_" & unique_id : l, t @ i <- fields);
+    field_names = adjusted_unambiguous_lower_camel_case_names(set(left(unzip(fields))));
+
+    fields_code = (
+      import_code_ex(t, expr & "." & field_names(l), "Cell.Runtime.Obj " & field_vars(i) & " = ")
+      : l, t @ i <- fields
+    );
+
+    labels = "new ushort[] {" & append((symb_idx_qual_name(l) : l, _ <- fields), ", ") & "}";
+    values = "new Cell.Runtime.Obj[] {" & append(field_vars, ", ") & "}";
+    tuple_instr = action_prefix & "Cell.Runtime.Builder.CreateRecord(" & labels & ", " & values & ");";
+
+    return (join(fields_code) | tuple_instr);
+  }
+
+
+  String* array_import_code(InterType elem_type, String expr, String action_prefix, String ctor) {
+    unique_id = printed(_counter_(:any_value_will_do));
+    expr_var = "expr" & unique_id;
+    idx_var = "idx" & unique_id;
+    array_var = "array" & unique_id;
+
+    elem_code = import_code_ex(elem_type, expr_var & "[" & idx_var & "]", array_var & "[" & idx_var & "] = ");
+
+    native_elem_type = input_arg_type(elem_type);
+
+    return (
+      native_elem_type & "[] " & expr_var & " = " & expr & ";",
+      "Cell.Runtime.Obj[] " & array_var & " = new Cell.Runtime.Obj[" & expr_var & ".Length];",
+      "for (int " & idx_var & " = 0 ; " & idx_var & " < " & expr_var & ".Length ; " & idx_var & "++) {"
+    ) & indent_lines(elem_code) & (
+      "}",
+      action_prefix & ctor & "(" & array_var & ");"
+    );
+  }
+
+
+  String* map_import_code(KeyInterType key_type, InterType value_type, String expr, String action_prefix) {
+    unique_id = printed(_counter_(:any_value_will_do));
+    idx_var = "idx_" & unique_id;
+    entry_var = "entry_" & unique_id;
+    idx_var = "idx_" & unique_id;
+    key_var = "key_" & unique_id;
+    value_var = "value_" & unique_id;
+    keys_var = "keys_" & unique_id;
+    values_var = "values_" & unique_id;
+    in_key_type = input_arg_obj_type(key_type);
+    in_value_type = input_arg_obj_type(value_type);
+
+    code = (
+      "Cell.Runtime.Obj[] " & keys_var & " = new Cell.Runtime.Obj[" & expr & ".Count];",
+      "Cell.Runtime.Obj[] " & values_var & " = new Cell.Runtime.Obj[" & expr & ".Count];",
+      "int " & idx_var & " = 0;",
+      "foreach (var " & entry_var & " in " & expr & ") {",
+      "  " & in_key_type & " " & key_var & " = " & entry_var & ".Key;",
+      "  " & in_value_type & " " & value_var & " = " & entry_var & ".Value;"
+    );
+
+    code = code & indent_lines(import_code(key_type, key_var, keys_var & "[" & idx_var & "] = "));
+    code = code & indent_lines(import_code(value_type, value_var, values_var & "[" & idx_var & "] = "));
+
+    return (
+      code |
+      "  " & idx_var & "++;",
+      "}",
+      action_prefix & "Cell.Runtime.Builder.CreateMap(" & keys_var & ", " & values_var & ");"
+    );
+  }
+
+
+  String* tagged_value_import_code(TaggedInterType tagged_type, String expr, String action_prefix) {
+    return import_code_ex(:generic, expr, action_prefix) if tagged_type == :generic;
+    unique_id = printed(_counter_(:any_value_will_do));
+    out_var = "var_" & unique_id;
+    code = import_code_ex(untagged_type(tagged_type), expr, "Cell.Runtime.Obj " & out_var & " = ");
+    tag = object(type_tag(tagged_type));
+    instr = action_prefix & "Cell.Runtime.Builder.CreateTaggedObj(" & symb_idx_qual_name(tag) & ", " & out_var & ");";
+    return (code | instr);
+  }
+
+
+  String* optional_value_import_code(InterType inner_type, String expr, String action_prefix) {
+    code = match (inner_type)
+      bool    = (action_prefix & "Cell.Runtime.Builder.CreateTaggedObj(Cell.Runtime.SymbObj.JustSymbId, Cell.Runtime.SymbObj.Get((bool) " & expr & "));"),
+      integer = (action_prefix & "Cell.Runtime.Builder.CreateTaggedIntObj(Cell.Runtime.SymbObj.JustSymbId, (long) " & expr & ");"),
+      float   = (action_prefix & "Cell.Runtime.Builder.CreateTaggedObj(Cell.Runtime.SymbObj.JustSymbId, new FloatObj((double) " & expr & "));"),
+      _       = import_code_ex(inner_type, expr, action_prefix);
+
+    return (
+      "if (" & expr & " != null) {",
+    ) & indent_lines(code) & (
+      "}",
+      "else",
+      "  " & action_prefix & "Cell.Runtime.SymbObj.Get(Cell.Runtime.SymbObj.NothingSymbId);"
+    );
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+implicit prg : CompiledPrg {
+  String* export_code(SymbolInterType inter_type, String type_name, String expr, String action_prefix) {
+    return (action_prefix & type_name & ".singleton;");
+  }
+
+  String* export_code(TupleInterType inter_type, String type_name, String expr, String action_prefix) {
+    ## WHY IS THIS STILL IN USE?
+    return tuple_export_code(untag(inter_type), expr, action_prefix);
+  }
+
+  String* export_code(RecordInterType inter_type, String type_name, String expr, String action_prefix) {
+    return record_export_code(untag(inter_type), type_name, expr, action_prefix);
+  }
+
+  String* export_code(NamedInterType inter_type, String type_name, String expr, String action_prefix) {
+    assert in(inter_type, declared_types);
+    return export_code(inter_type, expr, action_prefix);
+    // type_name = output_types_names(inter_type, !);
+    // return (action_prefix & decl_type_export_funct_name(type_name) & "(" & expr & ");")
+  }
+
+  String* export_code(UnionInterType inter_type, String type_name, String expr, String action_prefix) {
+    return type_union_export_code(inter_types(inter_type), expr, action_prefix);
+  }
+
+  String* export_code(TaggedInterType tagged_type, String type_name, String expr, String action_prefix) {
+    unique_id = printed(_counter_(:any_value_will_do));
+    in_var = "var_" & unique_id;
+    code = ("Cell.Runtime.Obj " & in_var & " = " & expr & ".GetInnerObj();");
+    untagged_type = untagged_type(tagged_type);
+    if untagged_type :: <NamedInterType, UnionInterType> and in(untagged_type, declared_types) {
+      unique_id = printed(_counter_(:any_value_will_do));
+      out_var = "var_" & unique_id;
+      code = (code | type_name & " " & out_var & " = new " & type_name & "();");
+      code = code & export_code(untagged_type, in_var, out_var & ".value = ");
+      code = (code | action_prefix & out_var & ";");
+    }
+    else {
+      code = code & untagged_type_export_code(untagged_type, type_name, in_var, action_prefix);
+    }
+    return code;
+
+
+    String* untagged_type_export_code(DeclInterType inter_type, String type_name, String expr, String action_prefix) =
+      export_code(inter_type, type_name, expr, action_prefix);
+
+
+    String* untagged_type_export_code(NonDeclInterType inter_type, String type_name, String expr, String action_prefix) {
+      unique_id = printed(_counter_(:any_value_will_do));
+      var = "var_" & unique_id;
+      code = (type_name & " " & var & " = new " & type_name & "();");
+      code = code & export_code(inter_type, expr, var & ".value = ");
+      return (code | action_prefix & var & ";");
+    }
+  }
+
+  //////////////////////////////////////////////////////////////////////////////
+  //////////////////////////////////////////////////////////////////////////////
+
+  String* export_code(InterType it, String expr, String action_prefix) {
+    if in(it, declared_types) {
+      fail if not it :: DeclInterType; ## BAD
+      if not is_simplifiable(it) {
+        type_name = output_types_names(it, !);
+        return (action_prefix & "Cell.Generated.Converters." & decl_type_export_funct_name(type_name) & "(" & expr & ");");
+      }
+    }
+
+    return match (it)
+      bool                = (action_prefix & expr & ".GetBool();"),
+      integer             = (action_prefix & expr & ".GetLong();"),
+      float               = (action_prefix & expr & ".GetDouble();"),
+      string              = (action_prefix & expr & ".GetString();"),
+      date                = (action_prefix & "Cell.Runtime.Conversions.ObjToDate(" & expr & ");"),
+      time                = (action_prefix & "Cell.Runtime.Conversions.ObjToDateTime(" & expr & ");"),
+      symbol()            = (action_prefix & "Cell.Facades." & output_types_names(it, !) & ".singleton;"),
+      tuple(ts?)          = tuple_export_code(ts, expr, action_prefix),
+      inline_record(fs?)  = inline_record_export_code(fs, expr, action_prefix),
+      record()            |
+      union()             = undefined, // They are supposed to always be declared
+      named()             = export_code(named_interface_types_defs(it, !), expr, action_prefix),
+      seq(t?)             |
+      set(t?)             = array_export_code(t, expr, action_prefix),
+      map(k?, v?)         = map_export_code(k, v, expr, action_prefix),
+      tagged()            = tagged_type_export_code(it, expr, action_prefix),
+      optional(t?)        = optional_type_export_code(t, expr, action_prefix),
+      generic             = (action_prefix & "Cell.Runtime.Conversions.ExportAsText(" & expr & ");");
+  }
+
+
+  String* optional_type_export_code(InterType inner_type, String expr, String action_prefix) {
+    code_nothing = (
+      "if (" & expr & ".IsSymb(Cell.Runtime.SymbObj.NothingSymbId))",
+      "  return null;"
+    );
+    code_just = match (inner_type)
+      bool    = (action_prefix & expr & ".GetInnerObj().IsSymb(Cell.Runtime.SymbObj.TrueSymbId);"),
+      integer = (action_prefix & expr & ".GetInnerLong();"),
+      float   = (action_prefix & expr & ".GetInnerObj().GetDouble();"),
+      _       = { unique_id = _counter_(:any_value_will_do);
+                  var = "var_" & printed(unique_id);
+                  instr = "Cell.Runtime.Obj " & var & " = " & expr & ".GetInnerObj();";
+                  return (instr) & export_code(inner_type, var, action_prefix);
+                };
+    return code_nothing & code_just;
+  }
+
+
+  String* tagged_type_export_code(TaggedInterType tagged_type, String expr, String action_prefix) {
+    return export_code(:generic, expr, action_prefix) if tagged_type == :generic;
+    unique_id = printed(_counter_(:any_value_will_do));
+    in_var = "var_" & unique_id;
+    instr = "Cell.Runtime.Obj " & in_var & " = " & expr & ".GetInnerObj();";
+    untagged_type = untagged_type(tagged_type);
+    return (instr) & export_code(untagged_type, in_var, action_prefix);
+  }
+
+
+  String* type_union_export_code([+UnionAltInterType] types, String expr, String action_prefix) {
+    assert action_prefix == "return ";
+
+    unique_id = printed(_counter_(:any_value_will_do));
+
+    symb_types   = [t : t <- types, t :: SymbolInterType];
+    tagged_types = [t : t <- types, t :: TaggedInterType];
+    named_types  = [t : t <- types, t :: NamedInterType];
+    assert symb_types & tagged_types & named_types == types;
+
+    symbol_type_map = [symbol(t) -> t : t <- symb_types] &
+                      [s -> t : t <- named_types, s <- symbols(t, named_interface_types_defs($, !))];
+
+    tag_type_map = [type_tag(t) -> t : t <- tagged_types] &
+                   [s -> t : t <- named_types, s <- tags(t, named_interface_types_defs($, !))];
+
+    code = ();
+
+    if symbol_type_map != [] {
+      if |symbol_type_map| > 1 {
+        symbs_code = ("switch (" & expr & ".GetSymbId()) {");
+        for s, t @ i <- isort(symbol_type_map) {
+          symbs_code = symbs_code & (
+            "  case Cell.Generated.Static." & symb_idx_base_name(s) & ":",
+            "    " & action_prefix & "Cell.Facades." & output_types_names(t, !) & ".singleton;",
+            "    break" if action_prefix != "return ", ## BAD BAD BAD
+            ""
+          );
+        }
+        symbs_code = (symbs_code | "  default:", "    throw Cell.Runtime.ErrorHandler.InternalFail();", "}");
+
+      }
+      else {
+        only_type = only(values(symbol_type_map));
+        symbs_code = (action_prefix & "Cell.Facades." & output_types_names(only_type, !) & ".singleton;");
+      }
+      symbs_code = ("if (" & expr & ".IsSymb()) {",) & indent_lines(symbs_code) & ("}") if tag_type_map != [];
+      code = code & symbs_code;
+    }
+
+    if tag_type_map != [] {
+      if |tag_type_map| > 1 {
+        tagged_values_code = ("switch (" & expr & ".GetTagId()) {");
+        for tag, type @ i <- isort(tag_type_map) {
+          type_name = output_types_names(type, !);
+          tagged_values_code = tagged_values_code & (
+            "  case Cell.Generated.Static." & symb_idx_base_name(object(tag)) & ":",
+            "    " & action_prefix & decl_type_export_funct_name(type_name) & "(" & expr & ");",
+            ""
+          );
+        }
+        tagged_values_code = (tagged_values_code | "  default:", "    throw Cell.Runtime.ErrorHandler.InternalFail();", "}");
+
+      }
+      else {
+        type_name = output_types_names(only(values(tag_type_map)), !);
+        tagged_values_code = (action_prefix & decl_type_export_funct_name(type_name) & "(" & expr & ");");
+      }
+      if symbol_type_map != []
+        tagged_values_code = ("else {") & indent_lines(tagged_values_code) & ("}");
+      code = code & tagged_values_code;
+    }
+
+    return code;
+  }
+
+
+  String* record_export_code([+Symbol -> InterType] fields, String type_name, String expr, String action_prefix) {
+    unique_id = printed(_counter_(:any_value_will_do));
+    record_var = "record_" & unique_id;
+
+    field_names = adjusted_unambiguous_lower_camel_case_names(keys(fields));
+
+    record_inst_instr = type_name & " " & record_var & " = new " & type_name & "();";
+    asgnm_code = join(({
+        asgnm_text = record_var & "." & field_names(l, !) & " = ";
+        field_unique_id = printed(_counter_(:any_value_will_do));
+        field_var = "var_" & field_unique_id;
+        field_store_instr = "Cell.Runtime.Obj " & field_var & " = " & expr & ".LookupField(" & symb_idx_qual_name(l) & ");";
+        return (field_store_instr) & export_code(t, field_var, asgnm_text);
+      } : l, t <- isort(fields)
+    ));
+
+    return (record_inst_instr) & (asgnm_code | action_prefix & record_var & ";");
+  }
+
+
+  String* tuple_export_code(InterType+ types, String expr, String action_prefix) {
+    unique_id = printed(_counter_(:any_value_will_do));
+
+    item_vars = ("item_" & unique_id & "_" & _print_(i + 1) : i < |types|);
+    item_types = (return_value_type(t) : t <- types);
+
+    asgnm_code = join(({
+        asgnm_text = item_types(i) & " " & item_vars(i) & " = ";
+        return export_code(t, expr & ".GetObjAt(" & printed(i) & ")", asgnm_text);
+      } : t @ i <- types
+    ));
+
+    tuple_inst_instr = action_prefix & "(" & append(item_vars, ", ") & ");";
+
+    return (asgnm_code | tuple_inst_instr);
+  }
+
+
+  String* inline_record_export_code((Symbol, InterType)+ fields, String expr, String action_prefix) {
+    unique_id = printed(_counter_(:any_value_will_do));
+
+    field_vars = ("field_" & unique_id & "_" & _print_(l) : l, t @ i <- fields);
+    field_names = adjusted_unambiguous_lower_camel_case_names(set(left(unzip(fields))));
+
+    asgnm_code = join(({
+      obj_var = "obj_" & field_vars(i);
+      asgnm_text = return_value_type(t) & " " & field_vars(i) & " = ";
+      symb_name = symb_idx_qual_name(l);
+      field_lookup_instr = "Cell.Runtime.Obj " & obj_var & " = " & expr & ".LookupField(" & symb_name & ");";
+      return (field_lookup_instr) & export_code(t, obj_var, asgnm_text);
+    } : l, t @ i <- fields));
+
+    field_values = (field_names(l) & ": " & field_vars(i) : l, _ @ i <- fields);
+    record_inst_instr = action_prefix & "(" & append(field_values, ", ") & ");";
+
+    return (asgnm_code | record_inst_instr);
+  }
+
+
+  String* array_export_code(InterType elem_type, String expr, String action_prefix) {
+    return match (elem_type)
+      bool                = (action_prefix & "Cell.Runtime.Conversions.ToBoolArray(" & expr & ");"),
+      integer             = (action_prefix & "Cell.Runtime.Conversions.ToLongArray(" & expr & ");"),
+      float               = (action_prefix & "Cell.Runtime.Conversions.ToDoubleArray(" & expr & ");"),
+      string              = (action_prefix & "Cell.Runtime.Conversions.ToStringArray(" & expr & ");"),
+      generic             = (action_prefix & "Cell.Runtime.Conversions.ToTextArray(" & expr & ");"),
+      tagged(_, generic)  = array_export_code(:generic, expr, action_prefix),
+      date                |
+      time                |
+      tuple()             |
+      record()            |
+      seq()               |
+      set()               |
+      map()               |
+      named()             |
+      tagged()            |
+      optional()          |
+      symbol()            |
+      union()             = generic_array_export_code(elem_type, expr, action_prefix);
+
+
+    String* generic_array_export_code(InterType elem_type, String expr, String action_prefix) {
+      unique_id = printed(_counter_(:any_value_will_do));
+      expr_var = "expr" & unique_id;
+      size_var = "size" & unique_id;
+      array_var = "array" & unique_id;
+      buffer_var = "buffer" & unique_id;
+      elt_var = "elt" & unique_id;
+      idx_var = "idx" & unique_id;
+      out_elem_type = return_value_type(elem_type);
+
+      return (
+        "Cell.Runtime.Obj " & expr_var & " = " & expr & ";",
+        "int " & size_var & " = " & expr_var & ".GetSize();",
+        out_elem_type & "[] " & array_var & " = new " & array_new_expr(elem_type, size_var) & ";",
+        "Cell.Runtime.Obj[] " & buffer_var & " = " & expr_var & ".GetObjArray();",
+        "for (int " & idx_var & " = 0 ; " & idx_var & " < " & size_var & " ; " & idx_var & "++) {",
+        "  Cell.Runtime.Obj " & elt_var & " = " & buffer_var & "[" & idx_var & "];"
+      ) & indent_lines(export_code(elem_type, elt_var, array_var & "[" & idx_var & "] = ")) & (
+        "}",
+        action_prefix & array_var & ";"
+      );
+    }
+
+
+    String array_new_expr(InterType elem_type, String size_expr) =
+      seq(t?) | set(t?) = array_new_expr(t, size_expr) & "[]",
+      _                 = return_value_type(elem_type) & "[" & size_expr & "]";
+  }
+
+
+  String* map_export_code(KeyInterType key_type, InterType value_type, String expr, String action_prefix) {
+    unique_id = printed(_counter_(:any_value_will_do));
+    map_var = "map_" & unique_id;
+    iter_var = "iter_" & unique_id;
+    key_var = "key_" & unique_id;
+    value_var = "value_" & unique_id;
+    out_key_var = "out_key_" & unique_id;
+    out_value_var = "out_value_" & unique_id;
+
+    out_type = return_value_type(:map(key_type, value_type));
+    out_key_type = return_value_type(key_type);
+    out_value_type = return_value_type(value_type);
+
+    code = (
+      out_type & " " & map_var & " = new " & out_type & "();",
+      "Cell.Runtime.BinRelIter " & iter_var & " = " & expr & ".GetBinRelIter();",
+      "while (!" & iter_var & ".Done()) {",
+      "  Cell.Runtime.Obj " & key_var & " = " & iter_var & ".Get1();",
+      "  Cell.Runtime.Obj " & value_var & " = " & iter_var & ".Get2();",
+      "  " & out_key_type & " " & out_key_var & ";",
+      "  " & out_value_type & " " & out_value_var & ";"
+    );
+
+    code = code & indent_lines(export_code(key_type, key_var, out_key_var & " = "));
+    code = code & indent_lines(export_code(value_type, value_var, out_value_var & " = "));
+
+    return (
+      code |
+      "  " & map_var & "[" & out_key_var & "] = " & out_value_var & ";",
+      "  " & iter_var & ".Next();",
+      "}",
+      action_prefix & " " & map_var & ";"
+    );
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+implicit typedefs : [TypeName -> NeType] {
+  [TypeSymbol] reachable_type_symbols([NeType] types) {
+    type_symbs = [ts : t <- types, ts <- retrieve_type_symbs(t)];
+    loop {
+      nested_type_symbs = [
+        nts : ts <- type_symbs,
+              t = cast_ne_type(expand_type_ref(ts, typedefs)),
+              nts <- retrieve_type_symbs(t)
+      ];
+
+      new_type_symbs = nested_type_symbs - type_symbs;
+      return type_symbs if new_type_symbs == [];
+      type_symbs = type_symbs & new_type_symbs;
+    }
+  }
+
+
+  NeType expand_top_level_type_refs(NeType type) =
+    symb_type()         |
+    atom_type           |
+    integer             |
+    low_ints()          |
+    high_ints()         |
+    int_range()         |
+    float_type          |
+    empty_seq_type      |
+    empty_rel_type      |
+    type_var()          |
+    ne_seq_type()       |
+    ne_set_type()       |
+    ne_map_type()       |
+    ne_bin_rel_type()   |
+    ne_tern_rel_type()  |
+    ne_record_type()    |
+    tuple_type()        |
+    tag_obj_type()      = type,
+    type_ref(ts?)       = expand_top_level_type_refs(cast_ne_type(expand_type_ref(ts, typedefs))),
+    union_type(ts?)     = ne_union_type([expand_top_level_type_refs(t) : t <- ts]);
+
+
+  Bool is_nameable(NeType type) {
+    return false if (t <- special_cases : is_subset(type, t));
+    return is_symb_singl_type(type) or is_tuple(type) or is_record(type) or is_union(type) or is_tagged(type);
+
+
+    [+NeType] special_cases = [type_bool, type_string, type_date, type_time, type_maybe(type_any)];
+
+
+    Bool is_tuple(NeType type) {
+      maybe_types = maybe_tuple_type_fields(type);
+      if maybe_types != nothing {
+        types = value(maybe_types);
+        size = |types|;
+        return true if size >= 2 and size <= 8;
+      }
+      return false;
+    }
+
+
+    Bool is_record(NeType type) {
+      maybe_fields = maybe_record_type_fields(type);
+      if maybe_fields != nothing {
+        types = value(maybe_fields);
+        return true if not (l info <- types : info.optional);
+      }
+      return false;
+    }
+
+
+    Bool is_tagged(NeType type) {
+      if is_subset(type, type_tagged_obj) {
+        tag_type = tag_supertype(type);
+        return true if is_symb_singl_type(tag_type);
+      }
+      return false;
+    }
+
+
+    Bool is_union(NeType type) =
+      union_type(ts?)   = not (t <- ts : not is_symb_singl_type(t) and not is_tagged(t)),
+      type_ref(ts?)     = is_union(cast_ne_type(expand_type_ref(ts, typedefs))),
+      _                 = false;
+  }
+}
+
+
+implicit prg : CompiledPrg, typedefs : [TypeName -> NeType] {
+  InterType interface_type(NeType type) {
+    return interface_type(type, 8);
+
+
+    InterType interface_type(NeType type, Nat depth) {
+      // Named types
+      if type :: TypeRef {
+        type_symb = type_symb(type);
+        return :named(type_symb) if in(type_symb, named_interface_types);
+      }
+
+      // Atomic or standard types
+      for it <- (:bool, :integer, :float, :string, :date, :time)
+        return it if is_subset(type, internal_type(it));
+
+      // Giving up if we're too deep in the call stack
+      return :generic if depth == 0;
+
+      // Sequences, including tuples
+      if is_subset(type, type_seq)
+        return seq_or_tuple_interface_type(type, depth);
+
+      // Sets
+      if is_subset(type, type_set)
+        return set_interface_type(type, depth);
+
+      // Maps, including records
+      if is_subset(type, type_map)
+        return map_record_interface_type(type, depth);
+
+      // Binary relations, excluding records and maps
+      if is_subset(type, type_bin_rel)
+        return bin_rel_interface_type(type, depth);
+
+      // // Ternary relations
+      // if is_subset(type, type_tern_rel)
+      //   return tern_rel_interface_type(type, depth);
+
+      // Monomorphically tagged types
+      if is_subset(type, type_tagged_obj) and is_symb_singl_type(tag_supertype(type))
+        return monomorphically_tagged_values_interface_type(type, depth);
+
+      // Maybe type
+      if is_subset(type, type_maybe(type_any))
+        if not is_subset(type, tag_obj_type(symb_type(:just), type_any))
+          if not is_subset(type, symb_type(:nothing))
+            return maybe_value_interface_type(type, depth);
+
+      // Any combination of symbols and tagged values
+      if is_subset(type, ne_union_type([atom_type, type_tagged_obj]))
+        return symbols_and_tagged_values_interface_type(type, depth);
+
+      return :generic;
+    }
+
+
+    InterType seq_or_tuple_interface_type(NeType type, NzNat depth) {
+      rem_depth = nat(depth - 1);
+
+      maybe_types = maybe_tuple_type_fields(type);
+      if maybe_types != nothing {
+        types = value(maybe_types);
+        size = |types|;
+        return :tuple((interface_type(t, rem_depth) : t <- types)) if size >= 2 and size <= 8;
+      }
+
+      elem_type = seq_elem_supertype(type);
+      fail if elem_type == empty_type;
+      return :seq(interface_type(elem_type, rem_depth));
+    }
+
+
+    InterType set_interface_type(NeType type, NzNat depth) {
+      elem_type = set_elem_supertype(type);
+      fail if elem_type == empty_type;
+      return :set(interface_type(elem_type, nat(depth-1)));
+    }
+
+
+    InterType map_record_interface_type(NeType type, NzNat depth) {
+      rem_depth = nat(depth - 1);
+
+      maybe_fields = maybe_record_type_fields(type);
+      if maybe_fields != nothing {
+        types = value(maybe_fields);
+        if not (l info <- types : info.optional)
+          return :record([untag(l) -> interface_type(info.type, rem_depth) : l info <- types]);
+      }
+
+      key_type, value_type = bin_rel_args_supertypes(type);
+      fail if value_type == empty_type;
+
+      key_inter_type = :generic;
+      for it <- (:integer, :string, :date, :time)
+        key_inter_type = it if is_subset(key_type, internal_type(it));
+
+      value_inter_type = interface_type(value_type, rem_depth);
+
+      return :map(key_inter_type, value_inter_type);
+    }
+
+
+    InterType bin_rel_interface_type(NeType type, NzNat depth) {
+      return :generic;
+    }
+
+
+    // InterType tern_rel_interface_type(NeType type, NzNat depth) {
+    //   args_types = tern_rel_args_supertypes(type);
+    //   fail if not args_types :: (NeType, NeType, NeType);
+    //   return :tern_rel((interface_type(t) : t <- args_types));
+    // }
+
+
+    InterType monomorphically_tagged_values_interface_type(NeType type, NzNat depth) {
+      tag = untag(only_symb(tag_supertype(type)));
+      untagged_type = untagged_objs_supertype(type);
+      fail if untagged_type == empty_type;
+      untagged_inter_type = interface_type(untagged_type, nat(depth-1));
+      return :tagged(tag, untagged_inter_type);
+    }
+
+
+    InterType maybe_value_interface_type(NeType type, NzNat depth) {
+      inner_type = maybe_type_type_param(type);
+      return :optional(interface_type(inner_type, depth));
+    }
+
+
+    InterType symbols_and_tagged_values_interface_type(NeType type, NzNat depth) =
+      union_type(ts?) = union_type_interface_type(ts, depth),
+      symb_type(s?)   = :symbol(untag(s)),
+      _               = :generic;
+
+
+    InterType union_type_interface_type([+NeType] types, NzNat depth) {
+      exp_types = (expand_top_level_type_refs(t) : t <- isort(types));
+      if exp_types :: < SymbType, tag_obj_type(tag_type: SymbType, obj_type: NeType),
+                        union_type([+<SymbType, tag_obj_type(tag_type: SymbType, obj_type: NeType)>])
+                      >+ {
+        symbols = (
+          match (exp_type)
+            symb_type(s?)   = [untag(s)],
+            tag_obj_type()  = [],
+            union_type(ts?) = [untag(t) : t <- ts, symb_type() ?= t]
+          : exp_type <- exp_types
+        );
+
+        tags = (
+          match (exp_type)
+            symb_type()     = [],
+            tag_obj_type()  = [untag(exp_type.tag_type)],
+            union_type(ts?) = [untag(t.tag_type) : t <- ts, tag_obj_type() ?= t]
+          : exp_type <- exp_types
+        );
+
+        if not intersect(symbols) and not intersect(tags) {
+          rem_depth = nat(depth - 1);
+          inter_types = [interface_type(t, rem_depth) : t <- types];
+          return :union(inter_types) if inter_types :: [+UnionAltInterType];
+        }
+      }
+      return :generic;
+    }
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+implicit prg : CompiledPrg, typedefs : [TypeName -> NeType] {
+  InterType simplified_interface_type(NeType type) {
+    return simplify(interface_type(type), named_interface_types_defs, []);
+
+
+    InterType simplify(InterType inter_type, [NamedInterType -> DeclInterType] it_defs, [TypeSymbol] visited) =
+      bool              |
+      integer           |
+      float             |
+      string            |
+      date              |
+      time              |
+      generic           |
+      symbol()          |
+      union()           = inter_type,
+
+      inline_record()   = undefined,
+
+      record(fs?)       = if |fs| > 1
+                            then :inline_record(isort([(l, simplify(t, it_defs, visited)) : l t <- fs]))
+                            else :record([l -> simplify(t, it_defs, visited) : l t <- fs]),
+
+      optional(t?)      = :optional(simplify(t, it_defs, visited)),
+      tuple(ts?)        = :tuple((simplify(t, it_defs, visited) : t <- ts)),
+      seq(t?)           = :seq(simplify(t, it_defs, visited)),
+      set(t?)           = :set(simplify(t, it_defs, visited)),
+      map(k?, v?)       = :map(k, simplify(v, it_defs, visited)),
+      tagged(s?, t?)    = :tagged(s, simplify(t, it_defs, visited)),
+
+      named(ts?)        = { return inter_type if visited(ts);
+                            exp_type = named_interface_types_defs(inter_type, !);
+                            simplified_exp_type = simplify(exp_type, it_defs, visited & [ts]);
+                            return if simplified_exp_type == exp_type
+                              then inter_type
+                              else simplified_exp_type;
+                          };
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+implicit typedefs : [TypeName -> NeType] {
+  NeType expand_top_level_type_refs(NeType type) =
+    symb_type()         |
+    atom_type           |
+    integer             |
+    low_ints()          |
+    high_ints()         |
+    int_range()         |
+    float_type          |
+    empty_seq_type      |
+    empty_rel_type      |
+    type_var()          |
+    ne_seq_type()       |
+    ne_set_type()       |
+    ne_map_type()       |
+    ne_bin_rel_type()   |
+    ne_tern_rel_type()  |
+    ne_record_type()    |
+    tuple_type()        |
+    tag_obj_type()      = type,
+    type_ref(ts?)       = expand_top_level_type_refs(cast_ne_type(expand_type_ref(ts, typedefs))),
+    union_type(ts?)     = ne_union_type([expand_top_level_type_refs(t) : t <- ts]);
+}
+
+
+[NamedInterType] nested_named_types(InterType inter_type) =
+  named() = [inter_type],
+  _       = search_nested(inter_type, nested_named_types);
+
+
+[X] search_nested(InterType inter_type, (InterType -> [X]) nested) =
+  bool            |
+  integer         |
+  float           |
+  string          |
+  date            |
+  time            |
+  generic         |
+  symbol()        |
+  named()         = [],
+  tuple(ts?)      = [x : t <- ts, x <- nested(t)],
+  record(fs?)     = [x : _ t <- fs, x <- nested(t)],
+  union(ts?)      = [x : t <- ts, x <- nested(t)],
+  tagged(_, t?)   |
+  optional(t?)    |
+  seq(t?)         |
+  set(t?)         = nested(t),
+  map(k?, v?)     = nested(k) & nested(v);
+
+
+String symb_idx_base_name(<Atom, SymbObj> symb) = symb_idx_name(symb, context=:core);
+String symb_idx_qual_name(<Atom, SymbObj> symb) = symb_idx_name(symb, context=:wrapper);

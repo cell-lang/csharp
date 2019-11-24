@@ -1,0 +1,11 @@
+codegen/
+src/tmp/
+codegen.jar
+cellcd-cs.jar
+tmp/
+dotnet/
+imdb/
+projects/imdb.txt
+debug/
+out.txt
+bin/cellc-cs-b[0-9]*.dll

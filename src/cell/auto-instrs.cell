@@ -1,0 +1,285 @@
+implicit prg : CompiledPrg, context : NativeContext, debug_mode : Bool {
+  String auto_expr_native_code(RefObjExpr expr, WriteObjVar var) =
+    copy_state()              = native_method_call(var, expr.var, copy_state_proc_name(expr.type), ()),
+    copy_rel()                = native_copy_rel_code(var, expr.tables, expr.applied_perm),
+    copy_persistent_state()   = native_method_call(var, expr.var, copy_state_proc_name(expr.type), ()),
+    read_pending_var(v?)      = native_var_ref_name(var) & " = " & native_var_ref_name(v) & ";";
+
+
+  String native_copy_rel_code(WriteObjVar res_var, [+TableVar -> <Table, Column>] tables, [+Nat -> Nat] applied_perm) {
+    is_column = only([
+      match (t)
+        table()   = false,
+        column()  = true
+      : _ t <- tables
+    ]);
+
+    symmetric = only([
+      match (t)
+        table()   = t.symmetric,
+        column()  = false
+      : _ t <- tables
+    ]);
+    assert not symmetric or (applied_perm == [0 -> 0, 1 -> 1] or applied_perm == [0 -> 0, 1 -> 1, 2 -> 2]);
+
+    arity = |applied_perm|;
+    if arity == 1 {
+      perm_args = ();
+    }
+    else if arity == 2 {
+      assert applied_perm == [0 -> 0, 1 -> 1] or applied_perm == [0 -> 1, 1 -> 0];
+      perm_args = if applied_perm == [0 -> 0, 1 -> 1] then (false if not symmetric) else (true);
+    }
+    else {
+      assert arity == 3;
+      perm_args = if symmetric then () else (applied_perm(!, i) : i < arity);
+    }
+
+    table_vars = keys(tables);
+
+    if is_column {
+      class_name = "ColumnBase";
+    }
+    else {
+      class_name = match (arity)
+        1 = "UnaryTable",
+        2 = if symmetric then "SymBinaryTable" else "BinaryTable",
+        3 = if symmetric then "Sym12TernaryTable" else "TernaryTable";
+    }
+
+    tables_names = (native_var_ref_name(v) : v <- isort(table_vars));
+    table_array_new = "new " & class_name & "[] {" & append(tables_names, ", ") & "}";
+    return native_static_call(res_var, class_name & ".Copy", (table_array_new) & perm_args);
+  }
+
+
+  String* auto_instr_native_code(Instr instr, Maybe[Nat] block_id) =
+    try_block()           = native_try_block_code(instr.var, instr.body, block_id),
+
+    queue_node_update()   = (native_method_call("this", queue_node_update_method_name(instr.type, instr.id), instr.args)),
+
+    insert_timer()        = (native_method_call("this", insert_timer_method_name(instr.type), (instr.idx, instr.time))),
+    clear_timer()         = (native_method_call("this", clear_timer_method_name(instr.type), (instr.idx))),
+
+    auto_pre_init()       = (native_new_call(instr.var, native_name(instr.type), ("env"))),
+    auto_cleanup()        = (), //(native_method_call(instr.var, cleanup_method_name(instr.type), ())),
+    clear_input()         = (native_method_call(if instr.var? then instr.var else "this", input_set_method_name(instr.type, instr.input), ("NullObj.singleton"))),
+    auto_update_node()    = (native_method_call("this", node_update_method_name(instr.type, instr.node), (instr.time_var if instr.time_var?, "env"))),
+
+    set_input()           = (native_method_call(instr.var, input_set_method_name(instr.type, instr.input), (instr.value))),
+    auto_apply()          = (native_method_call(if instr.var? then instr.var else "this", apply_method_name(instr.type), ("env"))),
+
+    set_persistent_state()  = (native_method_call(instr.auto_var, set_state_proc_name(instr.type), (instr.state))),
+
+    init_db()             = native_init_db_code(instr.db_var, instr.links, instr.type),
+    cleanup_db()          = (), //(native_method_call(instr.db_var, cleanup_method_name(instr.type), ())),
+
+    send_msg()            = native_send_msg_code(instr.db_var, instr.type, instr.msg, instr.is_root, if instr.res_var? then just(instr.res_var) else nothing),
+    try_update()          = (native_method_call("this", update_name(instr.type, instr.update_id), (instr.args | "updater", "env"))),
+    set_state()           = native_set_state_code(instr.state, instr.db_var, instr.dependees, instr.type, instr.res_var),
+    invoke_auto_method()  = (native_method_call(instr.res_var, if instr.auto_var? then instr.auto_var else "this", user_def_method_name(instr.type, instr.method_id), (instr.args | "env"))),
+    invoke_db_method()    = (native_method_call(instr.res_var, if instr.db_var? then instr.db_var else "this", user_def_method_name(instr.type, instr.method_id), (instr.args | "env"))),
+
+    init_value_store()    = (), //(native_method_call(instr.store,   "init",    ())),
+    cleanup_value_store() = (), //(native_method_call(instr.store,   "cleanup", ())),
+    init_table()          = (), //(native_method_call(instr.rel_var, "init",    ())),
+    cleanup_table()       = (), //(native_method_call(instr.rel_var, "cleanup", ())),
+
+    get_table_iter()      = (native_get_table_iter_code(instr.it_var, instr.table, instr.args)),
+    get_column_iter()     = (native_method_call(instr.it_var, instr.column, "GetIter", ())),
+
+    queue_deletes()       = (native_queue_deletes_code(instr.table_var, instr.args, instr.symmetric)),
+    lookup_or_queue_insert_value()  = (native_method_call(instr.res_var, updater_var_ref_name(instr.store), "LookupOrInsertValue", (instr.value))),
+    queue_insert_tuple()  = (native_queue_insert_tuple_code(instr.table_var, instr.tuple)),
+
+    column_insert_deferred()  = native_column_insert_deferred_code(instr.table_var, instr.key_surr, instr.value, instr.forced),
+
+    immediate_insert_or_add_ref() = native_immediate_insert_or_add_ref(instr.res_var, instr.store, instr.value),
+    immediate_insert_tuple()      = native_immediate_insert_tuple(instr.table_var, instr.tuple),
+    column_insert_immediate() = native_column_insert_immediate_code(instr.table_var, instr.key_surr, instr.value);
+
+
+  String* native_column_insert_immediate_code(TableVar table_var, Int32Var key_surr, AnyTypeExpr value) {
+    return (native_method_call(table_var, "Insert", (key_surr, value)));
+  }
+
+
+  String* native_column_insert_deferred_code(TableVar table_var, Int32Var key_surr, AnyTypeExpr value, Bool forced) {
+    updater = pending_updates_var_ref_name(table_var);
+    method_name = if forced then "Update" else "Insert";
+    return (native_method_call(updater, method_name, (key_surr, value)));
+  }
+
+
+  String* native_immediate_insert_or_add_ref(Int32Var res_var, ValueStoreId store, <AtomicExpr, IntExpr> value) {
+    return (native_method_call(res_var, store, "InsertOrAddRef", (value)));
+  }
+
+
+  String* native_immediate_insert_tuple(TableVar table_var, Int32Var+ tuple) {
+    return (native_method_call(table_var, "Insert", tuple));
+  }
+
+
+  String native_queue_insert_tuple_code(TableVar table_var, Int32Var+ tuple) {
+    updater = pending_updates_var_ref_name(table_var);
+    return native_method_call(updater, "Insert", (native_expr(v) : v <- tuple));
+  }
+
+
+  String* native_init_db_code(AnyDBVar db_var, LocDBVar* links, DBSymbol type) = (
+    native_new_call(db_var, native_name(type), (links | "env")),
+    native_method_call(
+      updater_var_ref_name(db_var),
+      db_var,
+      updater_creation_proc_name(type),
+      (updater_var_ref_name(d) : d <- links)
+    ) if db_var :: LocDBVar
+  );
+
+
+  String* native_try_block_code(LocVar var, Instr+ body, Maybe[Nat] block_id) = (
+    "try {"
+  ) & indent_lines(native_code(body, block_id)) & (
+    "}",
+    "catch (System.Exception) {",
+    "  " & native_var_ref_name(var) & " = NullObj.singleton;",
+    "}"
+  );
+
+
+  // String native_set_table_code(RelVar relvar, Table table, AtomicExpr state, Nat+ perm) {
+  //   perm_args = match (perm)
+  //     (_)       = (),
+  //     (0, 1)    = (false),
+  //     (1, 0)    = (true),
+  //     (_, _, _) = perm;
+  //   // args = (pending_updates_var_ref_name(relvar)) & table.value_stores &
+  //   //        (updater_var_ref_name(vs) : vs <- table.value_stores) & perm_args;
+  //   return native_method_call(pending_updates_var_ref_name(table_var(relvar)), "set", (state) & perm_args);
+  // }
+
+
+  String native_queue_deletes_code(TableVar table_var, Maybe[Int32Var]+ args, Bool symmetric) {
+    set_args = (a != nothing : a <- args);
+    fn_names = if symmetric then sym_fn_names_by_args else fn_names_by_args;
+    fn_name = fn_names(set_args);
+    target = pending_updates_var_ref_name(table_var);
+    return native_method_call(target, fn_name, (native_expr(value(a)) : a <- args, a != nothing));
+
+    [Bool+ -> String] fn_names_by_args = [
+      (true)                  -> "Delete",
+      (false)                 -> "Clear",
+      (true,  true)           -> "Delete",
+      (true,  false)          -> "Delete1",
+      (false, true)           -> "Delete2",
+      (false, false)          -> "Clear",
+      (true,  true,  true)    -> "Delete",
+      (true,  true,  false)   -> "Delete12",
+      (true,  false, true)    -> "Delete13",
+      (false, true,  true)    -> "Delete23",
+      (true,  false, false)   -> "Delete1",
+      (false, true,  false)   -> "Delete2",
+      (false, false, true)    -> "Delete3",
+      (false, false, false)   -> "Clear"
+    ];
+
+    [Bool+ -> String] sym_fn_names_by_args = [
+      (true,  true)           -> "Delete",
+      (true,  false)          -> "Delete",
+      (false, true)           -> "Delete",
+      (false, false)          -> "Clear",
+      (true,  true,  true)    -> "Delete",
+      (true,  true,  false)   -> "Delete12",
+      (true,  false, true)    -> "Delete_13_23",
+      (false, true,  true)    -> "Delete_13_23",
+      (true,  false, false)   -> "Delete_1_2",
+      (false, true,  false)   -> "Delete_1_2",
+      (false, false, true)    -> "Delete3",
+      (false, false, false)   -> "Clear"
+    ];
+  }
+
+
+  String native_get_table_iter_code(TableItVar it_var, AnyTableVar table_var, Maybe[Int32Var]+ args) {
+    fn_names = if it_var.symmetric then sym_fn_names_by_args else fn_names_by_args;
+    fn_name = fn_names((a != nothing : a <- args));
+    return native_method_call(it_var, table_var, fn_name, (native_expr(value(a)) : a <- args, a != nothing));
+
+    [Bool+ -> String] fn_names_by_args = [
+      (false)                 -> "GetIter",
+      (true,  false)          -> "GetIter1",
+      (false, true)           -> "GetIter2",
+      (false, false)          -> "GetIter",
+      (true,  true,  false)   -> "GetIter12",
+      (true,  false, true)    -> "GetIter13",
+      (false, true,  true)    -> "GetIter23",
+      (true,  false, false)   -> "GetIter1",
+      (false, true,  false)   -> "GetIter2",
+      (false, false, true)    -> "GetIter3",
+      (false, false, false)   -> "GetIter"
+    ];
+
+    [Bool+ -> String] sym_fn_names_by_args = [
+      (true,  false)          -> "GetIter",
+      (false, true)           -> "GetIter",
+      (false, false)          -> "GetIter",
+      (true,  true,  false)   -> "GetIter12",
+      (true,  false, true)    -> "GetIter_13_23",
+      (false, true,  true)    -> "GetIter_13_23",
+      (true,  false, false)   -> "GetIter_1_2",
+      (false, true,  false)   -> "GetIter_1_2",
+      (false, false, true)    -> "GetIter3",
+      (false, false, false)   -> "GetIter"
+    ];
+  }
+
+
+  String* native_send_msg_code(AnyDBVar db_var, DBSymbol type, AtomicExpr msg, Bool is_root, Maybe[BoolVar] maybe_res_var) {
+    if is_root {
+      method_name = update_entry_point_name(type);
+      fail if not db_var :: LocDBVar;
+      updater_name = updater_var_decl_name(db_var);
+      args = (msg, updater_name, "env");
+      line = if maybe_res_var == nothing
+        then native_method_call(db_var, method_name, args)
+        else native_method_call(value(maybe_res_var), db_var, method_name, args);
+      return (line);
+    }
+
+    else {
+      assert db_var :: LinkedDBVar;
+      fail if not db_var :: LinkedDBVar;
+      method_name = update_name(type, main_handler);
+      aux_db_var_name = updater_var_ref_name(db_var);
+      msg_var_name = dependee_msg_var_ref_name(db_var);
+      return (
+        "if (" & msg_var_name & " != null)",
+        "  throw ErrorHandler.SoftFail();",
+        msg_var_name & " = " & native_expr(msg) & ";"
+      );
+    }
+  }
+
+
+  String* native_set_state_code(AtomicExpr state, LocDBVar db_var, LocDBVar* dependees, DBSymbol type, BoolVar res_var) {
+    // If it's a local automaton variable we are trying to set the state of,
+    // then we need to create a new automaton and replacing the old automaton
+    // with the new one if the reconstruction process is successful
+    class_name = native_name(type);
+    updater_class_name = updater_creation_proc_name(type);
+    deps_args_list = append((native_var_ref_name(d) & ", " : d <- dependees));
+    deps_updaters_args_list = (updater_var_ref_name(d) : d <- dependees);
+    return (
+      "try {",
+      "  " & class_name & " instance = new " & class_name & "(" & deps_args_list & native_expr(state) & ", env);",
+      "  " & native_var_ref_name(db_var) & " = instance;",
+      "  " & native_method_call(updater_var_ref_name(db_var), db_var, updater_class_name, deps_updaters_args_list),
+      "  " & native_var_ref_name(res_var) & " = true;",
+      "}",
+      "catch (System.Exception) {",
+      "  " & native_var_ref_name(res_var) & " = false;",
+      "}"
+    );
+  }
+}

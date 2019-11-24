@@ -1,0 +1,64 @@
+implicit prg : CompiledPrg, typedefs : [TypeName -> NeType] {
+  (String*, String*) handler_wrapper(UpdateId method_id, HandlerWrapper wrapper,
+                                     DBSymbol block_name, String ext_name, String class_name)
+  {
+    fields_types, fields_vars, fields_memb_preds = unzip3(wrapper.fields);
+
+    args_inter_types = (simplified_interface_type(t) : t <- fields_types);
+
+    arg_types = (input_arg_type(it) : it <- args_inter_types);
+    args_decls = append((it & " arg" & printed(i) : it @ i <- arg_types), ", ");
+
+    code = (
+      "",
+      "public void " & ext_name & "(" & args_decls & ") {"
+    );
+
+    let context = :wrapper {
+      field_vars = (native_var_ref_name(v) : v <- fields_vars);
+      code = (code | "  Cell.Runtime.Obj " & append(field_vars, ", ") & ";") if field_vars != ();
+      already_decl_vars = [v : v <- fields_vars];
+      code = code & indent_lines(gen_vars_decls(wrapper.msg_inst_code, already_decl_vars));
+      code = (code | "") if |code| > 2;
+
+      code = code & join((
+        indent_lines(import_code(it, "arg" & printed(i), field_vars(i) & " = "))
+        : it @ i <- args_inter_types
+      ));
+
+      conds = (
+        native_fn_name(p, context=:wrapper) & "(" & native_var_ref_name(fields_vars(i)) & ")"
+        : p @ i <- fields_memb_preds
+      );
+      cond = append(conds, " && ");
+      cond = "(" & cond & ")" if |conds| > 1;
+
+      code = code & (
+        "  if (!" & cond & ")",
+        "    throw new System.Exception(\"Invalid argument type\");"
+      ) if cond != "";
+
+      native_msg_expr = native_expr(wrapper.msg_expr);
+      code = (
+        code & indent_lines(native_code(wrapper.msg_inst_code, nothing, debug_mode=false)) |
+        "  bool ok = automaton.UpdateEntryPoint(" & native_msg_expr & ", updater, env);",
+        "  if (ok) {",
+        "    if (OnSuccess != null)",
+        "      OnSuccess(" & native_msg_expr & ".ToString());",
+        "  }",
+        "  else {",
+        "    if (OnFailure != null)",
+        "      OnFailure(" & native_msg_expr & ".ToString());",
+        "    env = new Cell.Generated.Static.Env();",
+        "    throw updater.lastException;",
+        "  }",
+        "}"
+      );
+    }
+
+    args_types_str = append((remove_path(s) : s <- arg_types), ", ");
+    docs = "void " & ext_name & "(" & args_types_str & ");";
+
+    return (code, (docs));
+  }
+}
