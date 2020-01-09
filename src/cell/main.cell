@@ -6,7 +6,7 @@ Int Main(String* args) {
   if argc < 2 {
     Print(
       "Cell to C# compiler version " & version & "\n" &
-      "Usage: dotnet cellc-cs.dll <options> <project file> <output directory>\n" &
+      "Usage: cellc-cs <options> <project file> <output directory>\n" &
       "Options:\n" &
       "  -d             debug mode\n" &
       "  -ia            ignore assertions\n" &
