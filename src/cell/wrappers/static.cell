@@ -61,11 +61,11 @@ implicit prg : CompiledPrg, block_name : DBSymbol, duplicate_names : [String, Na
 
 
 ## REMOVE typedefs IF POSSIBLE. IT'S REDUNDANT
-implicit prg : CompiledPrg, typedefs : [TypeName -> NeType], block_name : DBSymbol, duplicate_names : [String, Nat] {
-  (String*, String*) db_method_wrapper(MethodId method_id, <CompiledMethod, OptCompMethod> method, Bool is_gen_memb_tester) {
+implicit prg : CompiledPrg, typedefs : [TypeName -> NeType], generated : [BasicTypeSymbol], block_name : DBSymbol, duplicate_names : [String, Nat] {
+  (String*, String*) db_method_wrapper(MethodId method_id, <CompiledMethod, OptCompMethod> method) {
     if not method_id.id? {
       ext_name = call_method_name(method_id);
-      return method_wrapper(method_id, method, block_name, ext_name, db_class_name, path_prefix, is_gen_memb_tester);
+      return method_wrapper(method_id, method, block_name, ext_name, db_class_name, path_prefix);
     }
     else
       return ((), ());
@@ -73,18 +73,18 @@ implicit prg : CompiledPrg, typedefs : [TypeName -> NeType], block_name : DBSymb
 
 
   (String*, String*) handler_wrapper(UpdateId update_id, HandlerWrapper wrapper) {
-    ext_name = call_handler_name(untag(wrapper.tag), |wrapper.fields|);
+    ext_name = call_handler_name(untag(wrapper.tag), |wrapper.args|);
     return handler_wrapper(update_id, wrapper, block_name, ext_name, db_class_name);
   }
 
   //////////////////////////////////////////////////////////////////////////////
 
-  (String*, String*) static_auto_accessors(StaticBlock block, [MethodId] gen_memb_testers_ids) {
+  (String*, String*) static_auto_accessors(StaticBlock block) {
     handlers_wrappers = (handler_wrapper(id, h) : id, h <- isort(block.exported_handlers));
     handlers_wrappers_code, handlers_wrappers_docs = (join(ls) : ls <- unzip(handlers_wrappers));
     handlers_wrappers_docs = ("") & handlers_wrappers_docs if handlers_wrappers_docs != ();
 
-    methods_wrappers = isort([db_method_wrapper(id, m, gen_memb_testers_ids(id)) : id m <- block.methods]);
+    methods_wrappers = isort([db_method_wrapper(id, m) : id m <- block.methods]);
     methods_wrappers_code, methods_wrappers_docs = (join(ls) : ls <- unzip(methods_wrappers));
     methods_wrappers_docs = ("") & methods_wrappers_docs if methods_wrappers_docs != ();
 
@@ -101,7 +101,7 @@ implicit prg : CompiledPrg, typedefs : [TypeName -> NeType], block_name : DBSymb
 
 implicit prg : CompiledPrg, block_name : DBSymbol {
   (String, Nat)* pretty_names(StaticBlock block) {
-    handlers_names = ((pretty_name(_untag_(h.tag)), |h.fields|) : id, h <- isort(block.exported_handlers));
+    handlers_names = ((pretty_name(_untag_(h.tag)), |h.args|) : id, h <- isort(block.exported_handlers));
     methods_names = (
       (pretty_name(bare_id(id.symbol)), id.arity) : id, _ <- isort(block.methods), not id.id?
     );
@@ -113,7 +113,7 @@ implicit prg : CompiledPrg, block_name : DBSymbol {
 ////////////////////////////////////////////////////////////////////////////////
 
 [NeType] interface_types(StaticBlock block) {
-  handlers_types = [t : _ h <- block.exported_handlers, (t, _, _) <- h.fields];
+  handlers_types = [t : _ h <- block.exported_handlers, (t, _, _, _) <- h.args];
   methods_types = union([set(m.args_types) & [m.ret_type] : _ m <- block.methods]);
   return handlers_types & methods_types;
 }
@@ -121,12 +121,12 @@ implicit prg : CompiledPrg, block_name : DBSymbol {
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-implicit prg : CompiledPrg, typedefs : [TypeName -> NeType] {
-  (String, String*, String*) static_auto_wrapper(StaticBlock block, [MethodId] gen_memb_testers_ids) {
+implicit prg : CompiledPrg, typedefs : [TypeName -> NeType], generated : [BasicTypeSymbol] {
+  (String, String*, String*) static_auto_wrapper(StaticBlock block) {
     let block_name = block.name {
       dup_names = [id(0), id(1) : id <- duplicates(pretty_names(block))];
       let duplicate_names = dup_names {
-        accessors_code, accessors_docs = static_auto_accessors(block, gen_memb_testers_ids);
+        accessors_code, accessors_docs = static_auto_accessors(block);
         class_name = db_class_name;
       }
     }
@@ -197,11 +197,11 @@ implicit prg : CompiledPrg, typedefs : [TypeName -> NeType] {
         "    bool " & native_method_call("ok", "automaton", update_entry_point_name(block.name), ("msg", "updater", "env"), context=:wrapper),
         "    if (ok) {",
         "      if (OnSuccess != null)",
-        "        OnSuccess(msg.ToString());",
+        "        OnSuccess(text);",
         "    }",
         "    else {",
         "      if (OnFailure != null)",
-        "        OnFailure(msg.ToString());",
+        "        OnFailure(text);",
         "      env = new Cell.Generated.Static.Env();",
         "      throw updater.lastException;",
         "    }",

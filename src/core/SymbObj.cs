@@ -5,13 +5,21 @@ using System.Collections.Generic;
 namespace Cell.Runtime {
   public sealed class SymbObj : Obj {
     internal string stringRepr;
+    private uint hashcode;
 
 
-    public SymbObj(ushort id) {
+    private SymbObj(ushort id) {
       data = SymbObjData(id);
       extraData = SymbObjExtraData();
       Debug.Assert(GetSymbId() == id);
       stringRepr = IdxToStr(id);
+
+      // Calculating the hash code
+      ulong hcode = 0;
+      int len = stringRepr.Length;
+      for (int i=0 ; i < len ; i++)
+        hcode = 31 * hcode + stringRepr[i];
+      hashcode = Hashing.Hashcode64(hcode);
     }
 
     //////////////////////////////////////////////////////////////////////////////
@@ -21,7 +29,7 @@ namespace Cell.Runtime {
     }
 
     public override uint Hashcode() {
-      return Hashcode(GetSymbId());
+      return hashcode;
     }
 
     public override TypeCode GetTypeCode() {
@@ -41,10 +49,6 @@ namespace Cell.Runtime {
     //## THIS COULD BE OPTIMIZED
     public static SymbObj Get(bool b) {
       return Get(b ? TrueSymbId : FalseSymbId);
-    }
-
-    public static uint Hashcode(ushort symbId) {
-      return symbId;
     }
 
     //////////////////////////////////////////////////////////////////////////////

@@ -75,9 +75,9 @@ implicit prg : CompiledPrg, rel_vars_perm_map : [DBSymbol -> [RelVar -> [+Nat ->
     class_name = native_name(block_name);
     typed_link_args = append((native_name(l) & " l" & printed(i) & ", " : l @ i <- links));
     link_args = append(("l" & printed(i) & ", " : l @ i <- links));
-    set_state_call = set_state_proc_name(block_name);
-    load_state_call = load_state_proc_name(block_name);
-    full_check_call = full_check_proc_name(block_name);
+    // set_state_call = set_state_proc_name(block_name);
+    // load_state_call = load_state_proc_name(block_name);
+    // full_check_call = full_check_proc_name(block_name);
 
     return (
       "public " & class_name & "(" & typed_link_args & "Obj state, Env env) : this(" & link_args & "env) {",
@@ -130,7 +130,7 @@ implicit prg : CompiledPrg, rel_vars_perm_map : [DBSymbol -> [RelVar -> [+Nat ->
     has_rel_vars = block.tables != [];
 
     code = (
-      "public void WriteState(DataWriter writer) {",
+      "public override void WriteState(DataWriter writer) {",
       "  writer.Write(\"( \");"
     );
 
@@ -142,7 +142,7 @@ implicit prg : CompiledPrg, rel_vars_perm_map : [DBSymbol -> [RelVar -> [+Nat ->
       code = (code |
         "  writer.Write(SymbObj.IdxToStr(" & symb_idx_name(bare_id(v)) & "));",
         "  writer.Write(\": \");",
-        "  ObjPrinter.Print(" & native_var_ref_name(v) & ", writer);",
+        "  ObjPrinter.PrintNoFlush(" & native_var_ref_name(v) & ", writer);",
         if i < |state_vars| - 1 or has_rel_vars
           then "  writer.Write(\",\\n\");"
           else "  writer.Write(\"\\n\");"
@@ -199,7 +199,7 @@ implicit prg : CompiledPrg, rel_vars_perm_map : [DBSymbol -> [RelVar -> [+Nat ->
 
   String* native_load_state_code(DBSymbol name, [MembVar -> BoolExpr] memb_vars_check_exprs, [RelVar -> (LocVar+, BoolExpr, Instr+)] rel_vars_load_code) {
     header = (
-      "public void " & load_state_proc_name(name) & "(System.IO.TextReader reader) {",
+      "public override void " & load_state_proc_name(name) & "(System.IO.TextReader reader) {",
       "  Obj v0, v1, v2;",
       "  int i0, i1, i2;",
       "",
@@ -434,7 +434,7 @@ implicit prg : CompiledPrg, rel_vars_perm_map : [DBSymbol -> [RelVar -> [+Nat ->
     sections = (s : s <- sections, s != ());
     body = join(intermix(sections, ("")));
 
-    sgn = "public bool " & full_check_proc_name(block.name) & "() {";
+    sgn = "public override bool " & full_check_proc_name(block.name) & "() {";
     return (sgn) & indent_lines(body) & ("}");
 
 

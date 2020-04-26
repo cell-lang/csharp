@@ -46,7 +46,9 @@ implicit prg : CompiledPrg, context : NativeContext, debug_mode : Bool {
     exit_block            = ("goto " & block_label(value_unsafe(block_id)) & ";"),
     switch_on_nat()       = native_nat_switch_code(instr.value, instr.cases, block_id),
     symb_switch()         = native_symb_switch_code(instr.value, instr.cases, instr.else, block_id),
-    call_proc()           = native_call_proc_code(if instr.var? then just(instr.var) else nothing, instr.name, instr.args, instr.cls_args, instr.rel_auto_args, instr.react_auto_args, block_id),
+    call_proc()           = if instr.name == proc_symbol(:load)
+                              then native_load_state_code(if instr.var? then instr.var else undefined, only_unsafe(instr.args), left(only_unsafe(instr.rel_auto_args)), right(only_unsafe(instr.rel_auto_args)))
+                              else native_call_proc_code(if instr.var? then just(instr.var) else nothing, instr.name, instr.args, instr.cls_args, instr.rel_auto_args, instr.react_auto_args, block_id),
     call_cls()            = (native_cls_call_code(instr.cls_var, instr.var, instr.args)),
     push_call_info()      = (native_push_call_info_code(instr.fn_name, instr.args) if debug_mode),
     pop_call_info         = (native_static_call("Debug.PopCallInfo", ()) if debug_mode),
@@ -295,13 +297,30 @@ implicit prg : CompiledPrg, context : NativeContext, debug_mode : Bool {
     label_set_name = const_symb_seq_name(index);
     values_strs = (native_expr(fields(object(l), !)) : l <- ord_labels);
     value_array_expr = "new Obj[] {" & append(values_strs, ", ") & "}";
-    return native_new_call(var, "RecordObj", (label_set_name, value_array_expr));
+    return native_static_call(var, "Cell.Runtime.Builder.CreateRecord", (label_set_name, value_array_expr));
   }
 
 
-  String* native_call_proc_code(Maybe[AnyWriteVar] var, ObjFnName name, AnyTypeExpr* args, AnyLambdaExpr* cls_args, LocDBVar* rel_auto_args, LocAutoVar* react_auto_args, Maybe[Nat] block_id) {
+  String *native_load_state_code(AnyWriteVar var, AnyTypeExpr arg, LocDBVar auto_var, DBSymbol auto_type) {
+    auto_type_name = native_name(auto_type);
+    updater_name = updater_var_ref_name(auto_var);
+
+    return (
+      "{ " & auto_type_name & " instance = new " & auto_type_name & "(env);",
+      "  bool succeeded = " & native_static_call("AutoMisc.Load", (arg, "instance", updater_name)),
+      "  " & native_var_ref_name(var) & " = SymbObj.Get(succeeded);",
+      "  if (succeeded) {",
+      "    " & native_var_ref_name(auto_var) & " = instance;",
+      "    " & updater_name & " = instance.NewUpdater();",
+      "  }",
+      "}"
+    );
+  }
+
+
+  String* native_call_proc_code(Maybe[AnyWriteVar] var, ObjFnName name, AnyTypeExpr* args, AnyLambdaExpr* cls_args, (LocDBVar, DBSymbol)* rel_auto_args, LocAutoVar* react_auto_args, Maybe[Nat] block_id) {
     cls_setup_code, cls_args_refs = unzip((gen_cls_info(c) : c <- cls_args));
-    rel_args = join(((native_var_ref_name(v), updater_var_ref_name(v)) : v <- rel_auto_args));
+    rel_args = join(((native_var_ref_name(v), updater_var_ref_name(v)) : v, _ <- rel_auto_args));
     react_args = (native_var_ref_name(v) : v <- react_auto_args);
     args_list = args & cls_args_refs & rel_args & react_args;
     args_list = (args_list | "env") if not name :: ConvFnId;

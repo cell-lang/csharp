@@ -1,12 +1,12 @@
 namespace Cell.Runtime {
   public abstract class OptTagRecObj : Obj {
     uint hcode = Hashing.NULL_HASHCODE;
-    RecordObj innerObj;
+    Obj innerObj;
 
 
     public override Obj GetInnerObj() {
       if (innerObj == null)
-        innerObj = new RecordObj(GetFieldIds(), GetValues());
+        innerObj = Builder.CreateRecord(GetFieldIds(), GetValues());
       return innerObj;
     }
 
@@ -17,8 +17,8 @@ namespace Cell.Runtime {
         ushort[] fieldIds = GetFieldIds();
         ulong code = 0;
         for (int i=0 ; i < fieldIds.Length ; i++)
-          code += Hashing.Hashcode(SymbObj.Hashcode(fieldIds[i]), LookupField(fieldIds[i]).Hashcode());
-        hcode = Hashing.Hashcode(GetTagId(), Hashing.Hashcode64(code));
+          code += Hashing.Hashcode(SymbObj.Get(fieldIds[i]).Hashcode(), LookupField(fieldIds[i]).Hashcode());
+        hcode = Hashing.Hashcode(SymbObj.Get(GetTagId()).Hashcode(), Hashing.Hashcode64(code));
         if (hcode == Hashing.NULL_HASHCODE)
           hcode++;
       }

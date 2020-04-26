@@ -8,4 +8,7 @@ imdb/
 projects/imdb.txt
 debug/
 out.txt
-bin/cellc-cs-b[0-9]*.dll
+bin/cellc-cs-0.5.[0-9].dll
+cellc-cs
+cellcd-cs
+bin/version-0.5.3/

@@ -19,5 +19,17 @@ namespace Cell.Runtime {
       }
       return Conversions.StringToObj(msg);
     }
+
+    public static Obj Save_P(Obj fname, RelAutoBase automaton, RelAutoUpdaterBase updater, object env) {
+      try {
+        DataWriter writer = IO.FileDataWriter(fname.GetString());
+        automaton.WriteState(writer);
+        return SymbObj.Get(true);
+      }
+      catch (Exception e) {
+        updater.lastException = e;
+        return SymbObj.Get(false);
+      }
+    }
   }
 }

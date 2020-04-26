@@ -2,11 +2,13 @@ using Exception = System.Exception;
 
 
 namespace Cell.Runtime {
-  public class RelAutoBase {
-
+  public abstract class RelAutoBase {
+    public abstract void WriteState(DataWriter writer);
+    public abstract void LoadState(System.IO.TextReader reader);
+    public abstract bool FullCheck();
   }
 
-  public class RelAutoUpdaterBase {
+  public abstract class RelAutoUpdaterBase {
     public Exception lastException;
   }
 }

@@ -294,7 +294,8 @@ namespace Cell.Runtime {
     //////////////////////////////////////////////////////////////////////////////
     ///////////////////////////// Sequence operations ////////////////////////////
 
-    public virtual bool    IsIntSeq()                       {return false;}
+    public virtual bool    IsNeIntSeq()                     {return false;}
+    public virtual bool    IsNeFloatSeq()                   {return false;}
 
     public virtual Obj     GetObjAt(long idx)               {throw ErrorHandler.InternalFail(this);}
     public virtual bool    GetBoolAt(long idx)              {throw ErrorHandler.InternalFail(this);}
@@ -416,6 +417,10 @@ namespace Cell.Runtime {
 
     public int SignedHashcode() {
       return (int) Hashcode();
+    }
+
+    public bool IsIntSeq() {
+      return IsEmptySeq() || IsNeIntSeq();
     }
 
     //////////////////////////////////////////////////////////////////////////////

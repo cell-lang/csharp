@@ -1,13 +1,15 @@
 using System;
 
 
+//## THE RecordObj CLASS HAS BEEN TEMPORARILY DISABLED, DUE TO ISSUES WITH
+//## THE ORDER OF FIELDS, WHICH AFFECTS COMPARISONS, ITERATION AND OTHER MATTERS
+
 namespace Cell.Runtime {
   public class RecordObj : NeBinRelObj {
     internal ushort[] fieldIds;
 
 
-    //## HERE I SHOULD BE PASSING LABEL OBJECTS AS WELL...
-    public RecordObj(ushort[] fieldIds, Obj[] values) {
+    private RecordObj(ushort[] fieldIds, Obj[] values) {
       Debug.Assert(fieldIds.Length > 0);
       for (int i=1 ; i < fieldIds.Length ; i++)
         Debug.Assert(SymbObj.CompSymbs(fieldIds[i-1], fieldIds[i]) == 1);
@@ -144,7 +146,7 @@ namespace Cell.Runtime {
       if (hcode == Hashing.NULL_HASHCODE) {
         long hcode = 0;
         for (int i=0 ; i < fieldIds.Length ; i++)
-          hcode += Hashing.Hashcode(SymbObj.Hashcode(fieldIds[i]), col2[i].Hashcode());
+          hcode += Hashing.Hashcode(SymbObj.Get(fieldIds[i]).Hashcode(), col2[i].Hashcode());
         hcode = Hashing.Hashcode64(hcode);
         if (hcode == Hashing.NULL_HASHCODE)
           hcode++;

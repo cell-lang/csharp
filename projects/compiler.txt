@@ -124,7 +124,6 @@
 ../compiler/src/F-code-analysis/errors.cell
 ../compiler/src/F-code-analysis/updates.cell
 
-../compiler/src/G-code-preprocessing/auto-gen-code.cell
 ../compiler/src/G-code-preprocessing/rel-vars-part.cell
 ../compiler/src/G-code-preprocessing/rel-vars-perm.cell
 
@@ -167,13 +166,17 @@ src/cell/static-blocks.cell
 src/cell/react-blocks.cell
 
 src/cell/wrappers/interface-types.cell
+src/cell/wrappers/native-types.cell
 src/cell/wrappers/naming.cell
 src/cell/wrappers/reactive.cell
 src/cell/wrappers/static.cell
 src/cell/wrappers/types-decls.cell
 src/cell/wrappers/methods.cell
 src/cell/wrappers/handlers.cell
-
+src/cell/wrappers/miscellanea.cell
+src/cell/wrappers/importing.cell
+src/cell/wrappers/exporting.cell
+src/cell/wrappers/decl-types-export.cell
 
 // Main file
 

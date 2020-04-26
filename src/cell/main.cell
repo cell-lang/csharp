@@ -1,20 +1,21 @@
 Int Main(String* args) {
   argc = |args|;
 
-  version = "0.5.3";
+  version = "0.5.4";
 
   if argc < 2 {
     Print(
-      "Cell to C# compiler version " & version & "\n"   &
+      "Cell to C# compiler version " & version & "\n" &
       "Usage: dotnet cellc-cs.dll <options> <project file> <output directory>\n" &
-      "Options:\n"                                                               &
-      "  -d   debug mode\n"                                                      &
-      "  -ia  ignore assertions\n"
+      "Options:\n" &
+      "  -d             debug mode\n" &
+      "  -ia            ignore assertions\n" &
+      "  -g <filename>  generate C# classes for all types listed in <filename>\n"
     );
     return 1;
   }
 
-  fname = args(argc-2);
+  prj_file = args(argc-2);
   out_dir = args(argc-1);
   options = subseq(args, 0, argc-2);
 
@@ -22,7 +23,6 @@ Int Main(String* args) {
   run_typechecking = true;
   ignore_assertions = false;
   debug_mode = false;
-  generate_accessors = false;
 
   developer_mode = false;
   print_intermediate = false;
@@ -30,12 +30,42 @@ Int Main(String* args) {
   wait_for_key_at_the_end = false;
   wait_for_key_at_every_step = false;
 
-  for o <- options {
+  types_gen_files = [];
+
+  i = 0;
+  while i < |options| {
+    o = options(i);
+
     if o == "-d" {
       debug_mode = true;
     }
     else if o == "-g" {
-      generate_accessors = true;
+      if i + 1 < |options| {
+        i = i + 1;
+        fname = options(i);
+
+        read_res = FileRead(fname);
+        if read_res == nothing {
+          if looks_like_an_option(fname)
+            Print("The -g option must be followed by the name of a file\n");
+          else
+            Print("File not found: " & fname & "\n");
+          return 1;
+        }
+
+        types_gen_files = _put_(types_gen_files, fname, value(read_res));
+      }
+      else {
+        Print(
+          "Invalid syntax after -g option\n" &
+          "Usage: dotnet cellc-cs.dll <options> <project file> <output directory>\n" &
+          "Options:\n" &
+          "  -d             debug mode\n" &
+          "  -ia            ignore assertions\n" &
+          "  -g <filename>  generate C# classes for all types listed in <filename>\n"
+        );
+        return 1;
+      }
     }
     else if o == "-ia" {
       ignore_assertions = true;
@@ -65,24 +95,26 @@ Int Main(String* args) {
     else {
       Print(
         "Invalid option: " & o & "\n" &
-        "Valid options:\n"            &
-        "  -d   debug mode\n"         &
-        "  -ia  ignore assertions\n"
+        "Valid options:\n" &
+        "  -d             debug mode\n" &
+        "  -ia            ignore assertions\n" &
+        "  -g <filename>  generate C# classes for all types listed in <filename>\n"
       );
       return 1;
     }
+
+    i = i + 1;
   }
 
   Print(
-    "Cell to C# compiler version " & version & "\n"   &
-    "Warning: this is a beta version\n"       &
-    // "Use -q option to suppress this output\n" &
-    "Compiling project " & fname & "\n"
+    "Cell to C# compiler version " & version & "\n" &
+    "Warning: this is a beta version\n" &
+    "Compiling project " & prj_file & "\n"
   );
 
-  read_res = FileRead(fname);
+  read_res = FileRead(prj_file);
   if read_res == nothing {
-    Print("File not found: " & fname & "\n");
+    Print("File not found: " & prj_file & "\n");
     return 1;
   }
   prj_file = value(read_res);
@@ -103,7 +135,6 @@ Int Main(String* args) {
 
   options = (
     debug_mode:             debug_mode,
-    generate_accessors:     generate_accessors,
     ignore_assertions:      ignore_assertions,
     include_runtime:        include_runtime,
     run_typechecking:       run_typechecking,
@@ -113,7 +144,7 @@ Int Main(String* args) {
     wait_for_key:           wait_for_key_at_every_step
   );
 
-  files = Compile(src_files, options);
+  files = Compile(src_files, types_gen_files, options);
 
   for name, lines <- isort(files) {
     ok = FileWrite(out_dir & "/" & name, value_unsafe(utf8_encode(_untag_(append(lines, "\n")))));
@@ -129,12 +160,17 @@ Int Main(String* args) {
   return if files != [] then 0 else 1;
 }
 
+
+Bool looks_like_an_option(String str) {
+  len = length(str);
+  return len >= 2 and len <= 4 and str[0] == `-`;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
 type CmdLineOpts = (
   debug_mode:             Bool,
-  generate_accessors:     Bool,
   ignore_assertions:      Bool,
   include_runtime:        Bool,
   run_typechecking:       Bool,
@@ -145,7 +181,7 @@ type CmdLineOpts = (
 );
 
 
-[String -> String*] Compile([String -> Byte*] src_files, CmdLineOpts cmd_line_opts) {
+[String -> String*] Compile([String -> Byte*] src_files, [String -> Byte*] types_gen_files, CmdLineOpts cmd_line_opts) {
   t0 = _ticks_(:any_value_will_do);
 
   decls = ();
@@ -161,6 +197,14 @@ type CmdLineOpts = (
     }
   }
   syn_prg = syn_prg(parsed_src_files: merge(decls));
+
+  res = parse_types_gen_files(types_gen_files);
+  if failed(res) {
+    file, line = error(res);
+    Print("\nSyntax error: file " & file & ", line " & _print_(line) & "\n\n");
+    return [];
+  }
+  types_to_gen = result(res);
 
   t1 = _ticks_(:any_value_will_do);
 
@@ -196,6 +240,13 @@ type CmdLineOpts = (
   }
 
   prg = desugared_prg(syn_prg=syn_prg);
+
+  errs = types_to_gen_errs(types_to_gen, prg.typedefs);
+  if errs != () {
+    Print("\n" & append(errs, "\n") & "\n\n");
+    return [];
+  }
+
   t3 = _ticks_(:any_value_will_do);
   if cmd_line_opts.developer_mode
     Print("Syntax removed\n");
@@ -224,13 +275,52 @@ type CmdLineOpts = (
     unused_var = GetChar();
 
   is_bad = false;
-  let program = prg {
-    let typedefs = schema_and_typedefs {
-      if cmd_line_opts.run_typechecking {
-        errs = typechecking_errors;
-        if errs == [] {
+  let program = prg, typedefs = prg.typedefs {
+    if cmd_line_opts.run_typechecking {
+      errs = typechecking_errors;
+      if errs == [] {
+        if cmd_line_opts.developer_mode
+          Print("The program typechecks\n");
+        else
+          Print(".");
+
+        if cmd_line_opts.wait_for_key
+          unused_var = GetChar();
+      }
+      else {
+        Print("\n\nError: the program does not typecheck\n\n");
+        // msgs = rand_sort([create_error_msgs(fd, es) : es @ fd <- errs]);
+        bad_decls = sort_set(keys(errs), source_file($a) < source_file($b));
+        ord_errs_by_decl = ((d, nonempty(sort_set(errs(d), source_line($a) < source_line($b)))) : d <- bad_decls);
+        msgs = (format_error_msgs(d, (create_error_msg(e) : e <- es)) : d, es <- ord_errs_by_decl);
+        for m <- msgs {
+          for l <- m
+            Print(l & "\n");
+          Print("\n");
+        }
+        Print("Number of functions with typechecking errors: " & printed(|errs|) & "\n");
+        is_bad = true;
+      }
+    }
+
+    t5 = _ticks_(:any_value_will_do);
+
+    perms = [];
+
+    if not is_bad {
+      options = options(
+        debug_mode:                 cmd_line_opts.debug_mode,
+        ignore_assertions:          cmd_line_opts.ignore_assertions,
+        max_opt_fields_in_opt_rec:  16
+      );
+
+      if prg.data_bases != [] {
+        res = transform_analyze_and_compile(prg, options);
+        if succeeded(res) {
+          cmp_prg, perms = get_result(res);
+          code = just(cmp_prg);
           if cmd_line_opts.developer_mode
-            Print("The program typechecks\n");
+            Print("Code analysis OK\n");
           else
             Print(".");
 
@@ -238,68 +328,26 @@ type CmdLineOpts = (
             unused_var = GetChar();
         }
         else {
-          Print("\n\nError: the program does not typecheck\n\n");
-          // msgs = rand_sort([create_error_msgs(fd, es) : es @ fd <- errs]);
+          errs = get_error(res);
           bad_decls = sort_set(keys(errs), source_file($a) < source_file($b));
           ord_errs_by_decl = ((d, nonempty(sort_set(errs(d), source_line($a) < source_line($b)))) : d <- bad_decls);
           msgs = (format_error_msgs(d, (create_error_msg(e) : e <- es)) : d, es <- ord_errs_by_decl);
+          Print("\n");
           for m <- msgs {
             for l <- m
               Print(l & "\n");
             Print("\n");
           }
-          Print("Number of functions with typechecking errors: " & printed(|errs|) & "\n");
           is_bad = true;
-        }
-      }
-
-      t5 = _ticks_(:any_value_will_do);
-
-      memb_test_accessors_ids = [];
-      perms = [];
-
-      if not is_bad {
-        options = options(
-          debug_mode:                 cmd_line_opts.debug_mode,
-          ignore_assertions:          cmd_line_opts.ignore_assertions,
-          max_opt_fields_in_opt_rec:  16
-        );
-
-        if prg.data_bases != [] {
-          res = transform_analyze_and_compile(prg, options, cmd_line_opts.generate_accessors);
-          if succeeded(res) {
-            cmp_prg, memb_test_accessors_ids, perms = get_result(res);
-            code = just(cmp_prg);
-            if cmd_line_opts.developer_mode
-              Print("Code analysis OK\n");
-            else
-              Print(".");
-
-            if cmd_line_opts.wait_for_key
-              unused_var = GetChar();
-          }
-          else {
-            errs = get_error(res);
-            bad_decls = sort_set(keys(errs), source_file($a) < source_file($b));
-            ord_errs_by_decl = ((d, nonempty(sort_set(errs(d), source_line($a) < source_line($b)))) : d <- bad_decls);
-            msgs = (format_error_msgs(d, (create_error_msg(e) : e <- es)) : d, es <- ord_errs_by_decl);
-            Print("\n");
-            for m <- msgs {
-              for l <- m
-                Print(l & "\n");
-              Print("\n");
-            }
-            is_bad = true;
-            code = nothing;
-          }
-        }
-        else {
-          code = just(compiled_program([], options=options));
+          code = nothing;
         }
       }
       else {
-        code = nothing;
+        code = just(compiled_program([], options=options));
       }
+    }
+    else {
+      code = nothing;
     }
   }
   return [] if is_bad;
@@ -332,8 +380,8 @@ type CmdLineOpts = (
   if cmd_line_opts.print_intermediate
     ok = FileWrite("dump-opt-code-3.txt", _untag_(_print_(opt_code_3)));
 
-  let program = prg
-    res = optimize_array_init(opt_code_3, typedefs = schema_and_typedefs);
+  res = optimize_array_init(opt_code_3, typedefs = prg.typedefs);
+
   if failed(res) {
     fn_ids, method_ids = error(res);
 
@@ -403,9 +451,10 @@ type CmdLineOpts = (
   if cmd_line_opts.print_intermediate
     ok = FileWrite("dump-opt-code.txt", _untag_(_print_(opt_code)));
 
-  let prg = opt_code, rel_vars_perm_map = perms, gen_memb_testers_ids = memb_test_accessors_ids
-    let debug_mode = cmd_line_opts.debug_mode
-      files = generated_code(cmd_line_opts.include_runtime);
+  all_types_to_gen = all_named_types_to_declare(types_to_gen, typedefs = prg.typedefs);
+
+  let prg=opt_code, generated=all_types_to_gen, rel_vars_perm_map=perms, debug_mode=cmd_line_opts.debug_mode
+    files = generated_code(cmd_line_opts.include_runtime);
 
   t8 = _ticks_(:any_value_will_do);
   if cmd_line_opts.developer_mode
@@ -442,42 +491,26 @@ type CmdLineOpts = (
 
 
 Result[
-  ( CompiledPrg,
-    [DBSymbol -> [MethodId]],
-    [DBSymbol -> [RelVar -> [+Nat -> Nat]]]
-  ),
+  (CompiledPrg, [DBSymbol -> [RelVar -> [+Nat -> Nat]]]),
   [+<Update, Handler> -> [+AnalysisError]]
 ]
-transform_analyze_and_compile(Program prg, CompOptions options, Bool generate_accessors) {
+transform_analyze_and_compile(Program prg, CompOptions options) {
   curr_prg = prg;
 
   // Partitioning relvars
-  let program = curr_prg
-    curr_prg = post_rel_vars_part_prg(typedefs = schema_and_typedefs);
+  curr_prg = post_rel_vars_part_prg(program = curr_prg, typedefs = curr_prg.typedefs);
 
   // Analysing the program. Has to be done after partitioning
-  let program = curr_prg
-    errs = analysis_errors(typedefs = schema_and_typedefs);
+  errs = analysis_errors(program = curr_prg, typedefs = curr_prg.typedefs);
   return failure(errs) if errs != [];
 
-  // Generating accessors
-  if generate_accessors {
-    typedefs = schema_and_typedefs(program=curr_prg);
-    curr_prg, memb_test_accessors_ids = prg_plus_auto_gen_code(program=curr_prg, typedefs=typedefs);
-  }
-  else {
-    memb_test_accessors_ids = [];
-  }
-
   // Permutating relvars
-  let program = curr_prg
-    curr_prg, perms = post_rel_vars_perm_program(typedefs = schema_and_typedefs);
+  curr_prg, perms = post_rel_vars_perm_program(program = curr_prg, typedefs = curr_prg.typedefs);
 
   // Compiling the program
-  let program = curr_prg
-    code = compiled_program(perms, typedefs = schema_and_typedefs, options = options);
+  code = compiled_program(perms, program = curr_prg, typedefs = curr_prg.typedefs, options = options);
 
-  return success((code, memb_test_accessors_ids, perms));
+  return success((code, perms));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -505,6 +538,74 @@ Nat* trim_spaces(Nat* line) {
     skip_back = skip_back + 1;
   assert skip_front + skip_back < len;
   return subseq(line, skip_front, :blank, skip_back);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+Result[[BasicTypeSymbol], (String, Int)] parse_types_gen_files([String -> Byte*] files) {
+  types = ();
+  for n c <- files {
+    lines = (trim_spaces(l) : l <- split_lines(c));
+    for l @ i <- lines if |l| > 0
+      if |l| >= 2 and is_upper(l(0)) {
+        res = read_mixed_or_upper_case_id(l, 0);
+        if succeeded(res) {
+          token_info = result(res);
+          return failure((n, i+1)) if token_info.length != |l|;
+          token = token_info.token;
+          return failure((n, i+1)) if not token :: <mixedcase_id(Symbol)>;
+          types = (types | type_symbol(untag(token)));
+        }
+        else
+          return failure((n, i+1));
+      }
+      else
+        return failure((n, i+1));
+  }
+  return success(set(types));
+}
+
+
+String* types_to_gen_errs([BasicTypeSymbol] types_to_gen, [TypeName -> NeType] typedefs) {
+  for ts <- types_to_gen {
+    // Checking that the type exists
+    return (
+      "The compiler was instructed to generate a C# class for " & user_repr(ts),
+      "but a definition for such type has not been found"
+    ) if not typedefs(type_symb_to_name(ts), _);
+
+    // Checking that the type is declarable
+    return (
+      "The compiler was instructed to generated a C# class for " & user_repr(ts),
+      "but it is unable to do so. Please consult the documentation to see",
+      "how exactly a type has to be defined for generation to be possible"
+    ) if not is_declarable(ts, typedefs = typedefs);
+  }
+
+  // Checking now for name conflicts
+
+  let typedefs = typedefs {
+    taken_names = [gen_class_name(bare_id(ts)) : ts <- named_types_to_declare(types_to_gen)];
+    conflicts = [];
+    for t <- types_to_gen {
+      for s <- tags_promoted_to_type_names(t) {
+        name = gen_class_name(s);
+        if taken_names(name)
+          conflicts = _insert_(conflicts, name);
+        else
+          taken_names = _insert_(taken_names, name);
+      }
+    }
+  }
+
+  return (
+    "The list of types to generate a corresponding C# class for is not valid",
+    "because it would produce more than one class with the same name:",
+    "  " & append(isort(conflicts), ", ")
+  ) if conflicts != [];
+
+  return ();
 }
 
 ////////////////////////////////////////////////////////////////////////////////

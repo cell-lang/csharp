@@ -33,7 +33,7 @@ namespace Cell.Runtime {
     }
 
     public override uint Hashcode() {
-      return Hashing.Hashcode(GetTagId(), obj.Hashcode());
+      return Hashing.Hashcode(SymbObj.Get(GetTagId()).Hashcode(), obj.Hashcode());
     }
 
     public override TypeCode GetTypeCode() {

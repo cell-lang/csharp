@@ -188,10 +188,13 @@ namespace Cell.Runtime {
       if (ObjPrinter.PrintSizeFits(obj, 200))
         return obj.ToString();
 
-      string outFnName = string.Format("{0}obj-{1}.txt", path, filedObjs.Count);
+      int idx = filedObjs.Count;
+      string outFnName = string.Format("debug{0}obj-{1}.txt", IO.DirectorySeparator(), idx);
       ObjPrinter.Print(obj, IO.FileDataWriter(outFnName), 100);
+
       filedObjs.Add(obj);
-      return outFnName;
+
+      return string.Format("<{0}obj-{1}.txt>", path, idx);
     }
 
     ////////////////////////////////////////////////////////////////////////////

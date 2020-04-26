@@ -1,5 +1,13 @@
 namespace Cell.Runtime {
   public abstract class NeFloatSeqObj : NeSeqObj {
+    public override bool IsNeIntSeq() {
+      return false;
+    }
+
+    public override bool IsNeFloatSeq() {
+      return true;
+    }
+
     public override Obj GetObjAt(long idx) {
       return new FloatObj(GetDoubleAt(idx));
     }

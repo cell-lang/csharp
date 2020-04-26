@@ -27,7 +27,7 @@ namespace Cell.Runtime {
     }
 
     public override uint Hashcode() {
-      return Hashing.Hashcode(GetTagId(), IntObj.Hashcode(GetInnerLong()));
+      return Hashing.Hashcode(SymbObj.Get(GetTagId()).Hashcode(), IntObj.Hashcode(GetInnerLong()));
     }
 
     public override TypeCode GetTypeCode() {

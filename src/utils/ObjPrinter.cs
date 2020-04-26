@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 
@@ -23,14 +24,19 @@ namespace Cell.Runtime {
       HashSet<Obj> multilineObjs = Multiliner.MultilineObjs(obj, maxLineLen);
       ObjPrinter printer = new ObjPrinter(writer, multilineObjs);
       obj.Visit(printer);
-      // writer.Flush();
+      writer.Flush();
     }
 
     public static void Print(Obj obj, DataWriter writer) {
       // ObjPrinter printer = new ObjPrinter(writer, new HashSet<Obj>(new IdentityEqualityComparer<Obj>()));
       ObjPrinter printer = new ObjPrinter(writer, new HashSet<Obj>());
       obj.Visit(printer);
-      // writer.Flush();
+      writer.Flush();
+    }
+
+    public static void PrintNoFlush(Obj obj, DataWriter writer) {
+      ObjPrinter printer = new ObjPrinter(writer, new HashSet<Obj>());
+      obj.Visit(printer);
     }
 
     public static bool PrintSizeFits(Obj obj, int maxSize) {
@@ -131,7 +137,7 @@ namespace Cell.Runtime {
             writer.Write(',');
             writer.NewLine();
           }
-          writer.Write(obj.GetDoubleAt(i));
+          writer.Write(FloatObjPrinter.Print(obj.GetDoubleAt(i)));
         }
 
         writer.UnindentedNewLine();
@@ -140,7 +146,7 @@ namespace Cell.Runtime {
         for (int i=0 ; i < len ; i++) {
           if (i > 0)
             writer.Write(", ");
-          writer.Write(obj.GetDoubleAt(i));
+          writer.Write(FloatObjPrinter.Print(obj.GetDoubleAt(i)));
         }
       }
 
@@ -148,7 +154,7 @@ namespace Cell.Runtime {
     }
 
     public void FloatObj(FloatObj obj) {
-      writer.Write(obj.GetDouble());
+      writer.Write(FloatObjPrinter.Print(obj.GetDouble()));
     }
 
     public void IntArrayObj(IntArrayObj obj) {
@@ -725,8 +731,15 @@ namespace Cell.Runtime {
         int size = lastVisitedObjSize;
         lastVisitedObjSize = -1;
         if (size > maxLineLen) {
-          if (multilineObjs != null)
-            multilineObjs.Add(obj);
+          if (multilineObjs != null) {
+            //## HACK HACK HACK
+            if (obj is NeTreeMapObj)
+              multilineObjs.Add(((NeTreeMapObj) obj).Packed());
+            else if (obj is NeTreeSetObj)
+              multilineObjs.Add(((NeTreeSetObj) obj).Packed());
+            else
+              multilineObjs.Add(obj);
+          }
           if (bailEarly)
             done = true;
         }
@@ -775,16 +788,12 @@ namespace Cell.Runtime {
         int len = obj.GetSize();
         int size = 2 * len;
         for (int i=0 ; i < len ; i++)
-          size += DoublePrintSize(obj.GetDoubleAt(i));
+          size += FloatObjPrinter.PrintSize(obj.GetDoubleAt(i));
         ConsumeSize(obj, size);
       }
 
       public void FloatObj(FloatObj obj) {
-        ConsumeSize(obj, DoublePrintSize(obj.GetDouble()));
-      }
-
-      private int DoublePrintSize(double value) {
-        return value.ToString().Length;
+        ConsumeSize(obj, FloatObjPrinter.PrintSize(obj.GetDouble()));
       }
 
       public void IntArrayObj(IntArrayObj obj) {
@@ -896,6 +905,186 @@ namespace Cell.Runtime {
         int tagSize = Cell.Runtime.SymbObj.Get(obj.GetTagId()).stringRepr.Length;
         ConsumeSize(obj, 2 + tagSize + ObjSize(obj.GetInnerObj()));
       }
+    }
+  }
+
+  //////////////////////////////////////////////////////////////////////////////
+  //////////////////////////////////////////////////////////////////////////////
+
+  static class FloatObjPrinter {
+    static char[] chars = new char[256]; //## MTBUG
+
+    public static int PrintSize(double value) {
+      if (Double.IsNaN(value))
+        return 3;
+
+      if (Double.IsPositiveInfinity(value))
+        return 8;
+
+      if (Double.IsNegativeInfinity(value))
+        return 9;
+
+      if (value == 0.0)
+        return 3;
+
+      if (value == -0.0)
+        return 4;
+
+      return Print(value, chars);
+    }
+
+    public static string Print(double value) {
+      if (Double.IsNaN(value))
+        return "NaN";
+
+      if (Double.IsPositiveInfinity(value))
+        return "Infinity";
+
+      if (Double.IsNegativeInfinity(value))
+        return "-Infinity";
+
+      if (value == 0.0)
+        return "0.0";
+
+      if (value == -0.0)
+        return "-0.0";
+
+      int len = Print(value, chars);
+      return new string(chars, 0, len);
+    }
+
+    private static int Print(double value, char[] chars) {
+      int offset = 0;
+
+      if (value < 0) {
+        chars[0] = '-';
+        value = -value;
+        offset++;
+      }
+
+      int exponent = 0;
+      while (value >= 1e19) {
+        value /= 10.0;
+        exponent++;
+      }
+
+      while (value <= 1e18) {
+        value *= 10.0;
+        exponent--;
+      }
+
+      // 18446744073709551615
+      //  1000000000000000000
+      //  9999999999999999999
+      // 10000000000000000000
+
+      ulong intValue = (ulong) value;
+
+      if (intValue % 1000000 > 990000)
+        intValue += 10000;
+      else
+        intValue += 5000;
+
+      intValue = intValue / 10000;
+      exponent += 4;
+
+      while (intValue % 10 == 0) {
+        intValue /= 10;
+        exponent++;
+      }
+
+      if (exponent == 0) {
+        int idx = PrintInteger(intValue, chars, offset);
+        chars[idx++] = '.';
+        chars[idx++] = '0';
+        return idx;
+      }
+
+      int digits = NumOfDigits(intValue);
+
+      if (exponent < 0) {
+        int absExp = -exponent;
+
+        // 0.00000123456 -> 123456 * 10 ^ -11
+
+        // 12345.6             1      0       7     -exponent < digits
+        // 1234.56             2      0       7     -exponent < digits
+        // 123.456             3      0       7     -exponent < digits
+        // 12.3456             4      0       7     -exponent < digits
+        // 1.23456             5      0       7     -exponent < digits
+        // 0.123456            6      0       8
+        // 0.0123456           7      1       9
+        // 0.00123456          8      2       10
+        // 0.000123456         9      3       11
+        // 0.0000123456        10     4       12
+        // 0.00000123456       11     5       13
+        // 0.000000123456      12     6       14
+        // 0.0000000123456     13     7       15
+
+        if (absExp < digits)
+          return PrintNumberWithDot(intValue, digits - absExp, chars, offset);
+
+        int extraZeros = absExp - digits; // Number of zeros right after the dot
+        int length = digits + 2 + extraZeros;
+
+        if (extraZeros <= 2 || (extraZeros <= 8 && length <= 16)) {
+          chars[offset++] = '0';
+          chars[offset++] = '.';
+          for (int i=0 ; i < extraZeros ; i++)
+            chars[offset++] = '0';
+          return PrintInteger(intValue, chars, offset);
+        }
+      }
+
+      // Default processing using the exponential notation
+      // The exponent is either > 0 or << 0
+      exponent += digits - 1;
+      if (digits > 1)
+        offset = PrintNumberWithDot(intValue, 1, chars, offset);
+      else
+        offset = PrintInteger(intValue, chars, offset);
+      chars[offset++] = 'e';
+      if (exponent < 0) {
+        chars[offset++] = '-';
+        exponent = -exponent;
+      }
+      return PrintInteger((ulong) exponent, chars, offset);
+    }
+
+    private static int PrintInteger(ulong value, char[] chars, int idx) {
+      int digits = NumOfDigits(value);
+      int i = idx + digits - 1;
+      do {
+        chars[i--] = (char) ('0' + value % 10);
+        value /= 10;
+      } while (value > 0);
+      return idx + digits;
+    }
+
+    private static int PrintNumberWithDot(ulong value, int left, char[] chars, int offset) {
+      int digits = NumOfDigits(value);
+      int dotIdx = offset + left;
+      int lastIdx = offset + digits;
+      for (int i=lastIdx ; i >= offset ; i--)
+        if (i != dotIdx) {
+          chars[i] = (char) ('0' + value % 10);
+          value /= 10;
+        }
+        else
+          chars[i] = '.';
+      return lastIdx + 1;
+    }
+
+    private static int NumOfDigits(ulong value) {
+      if (value < 10)
+        return 1;
+
+      int digits = 1;
+      do {
+        value = value / 10;
+        digits++;
+      } while (value >= 10);
+      return digits;
     }
   }
 }

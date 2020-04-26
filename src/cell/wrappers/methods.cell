@@ -2,57 +2,86 @@
 /////////////// Code shared between static and reactive automata ///////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-implicit prg : CompiledPrg, typedefs : [TypeName -> NeType] {
+implicit prg : CompiledPrg, typedefs : [TypeName -> NeType], generated : [BasicTypeSymbol] {
   (String*, String*) method_wrapper(MethodId method_id, <CompiledMethod, OptCompMethod> method,
-    <AutoSymbol, DBSymbol> block_name, String ext_name, String class_name,
-    String method_path, Bool is_gen_memb_tester) {
-    args_inter_types = (simplified_interface_type(t) : t <- method.args_types);
-    inter_ret_type = simplified_interface_type(method.ret_type);
+    <AutoSymbol, DBSymbol> block_name, String ext_name, String class_name, String method_path) {
+    args_inter_types = (interface_type(t, :input) : t <- method.args_types);
+    inter_ret_type = interface_type(method.ret_type, :output);
+
+    // Argument names, as seen by the user
+    args_ids = match (method)
+      compiled_method() = apply(method.args_vars, untag),
+      opt_comp_method() = (user_name_symbol(v) : v <- method.args);
+    // Making sure that there are no two named arguments have the same name
+    // which is supposed to be checked during well-formedness checking
+    assert duplicates((value(a) : a <- args_ids, a != nothing)) == [];
+    args_names_map = adjusted_unambiguous_lower_camel_case_names(set(values(args_ids)));
+    args_names = (
+      if id != nothing
+        then args_names_map(value(id))
+        else "arg" & _print_(i)
+      : id @ i <- args_ids
+    );
 
     input_args_types = (input_arg_type(it) : it <- args_inter_types);
-    args_decls = append((it & " arg" & printed(i) : it @ i <- input_args_types), ", ");
+    args_decls = append((it & " " & args_names(i) : it @ i <- input_args_types), ", ");
 
-    ret_val_str = return_value_type(inter_ret_type);
+    ret_val_str = qualified_return_type(inter_ret_type);
+
 
     arity = |method.args_types|;
     memb_preds = method.args_memb_preds;
     args_types_by_pos = ([ps(i) : ps <- memb_preds] : i < arity);
-    mono_args = ((i, only(ts)) : ts @ i <- args_types_by_pos, |ts| == 1);
-    poly_args = isort([i : ts @ i <- args_types_by_pos, |ts| != 1]);
+    monomorphic_args = ((i, only(ts)) : ts @ i <- args_types_by_pos, |ts| == 1);
+    polymorphic_args = isort([i : ts @ i <- args_types_by_pos, |ts| != 1]);
 
     body = if arity > 0
       then ("Cell.Runtime.Obj " & append(("objArg" & printed(i) : i < arity), ", ") & ";", "")
       else ();
 
     body = body & join((
-      import_code(it, "arg" & printed(i), "objArg" & printed(i) & " = ")
+      import_code(it, args_names(i), "objArg" & printed(i) & " = ")
       : it @ i <- args_inter_types
     ));
 
-    conds = (native_fn_name(p, context=:wrapper) & "(objArg" & printed(i) & ")" : i, p <- mono_args);
-    if poly_args != () {
-      poly_conds = ((
-          native_fn_name(ps(i), context=:wrapper) & "(objArg" & printed(i) & ")" : i <- poly_args
-      ) : ps <- isort(memb_preds));
-      anded_conds = ({
-          c = append(cs, " && ");
-          c = "(" & c & ")" if |cs| > 1;
-          return c;
-        } : cs <- poly_conds
-      );
-      poly_cond = append(anded_conds, " || ");
-      poly_cond = "(" & poly_cond & ")" if |anded_conds| > 1;
-      conds = (conds | poly_cond);
+    for i, p <- monomorphic_args {
+      var_name = "objArg" & _print_(i);
+      cond_str = native_fn_name(p, context=:wrapper) & "(" & var_name & ")";
+      type_user_repr = user_repr(method.args_types(i)); ## THIS SHOULD BE ESCAPED
+      body = (body | "if (!" & cond_str & ")");
+      exception_args = _print_(i) & ", " & var_name & ", " & "\"" & type_user_repr & "\"";
+      body = (body | "  throw new Cell.Runtime.InvalidArgumentTypeException(" & exception_args & ");");
     }
-    cond = append(conds, " && ");
-    cond = "(" & cond & ")" if |conds| > 1;
 
-    body = body & (
-      "if (!" & cond & ")",
-      if is_gen_memb_tester
-        then "  return false;"
-        else "  throw new System.Exception(\"Invalid argument type\");"
-    ) if cond != "";
+    if polymorphic_args != () {
+      if |polymorphic_args| == 1 {
+        arg_idx = only(polymorphic_args);
+        var_name = "objArg" & _print_(arg_idx);
+        type_user_repr = user_repr(method.args_types(arg_idx)); ## THIS SHOULD BE ESCAPED
+        exception_args = _print_(arg_idx) & ", " & var_name & ", " & "\"" & type_user_repr & "\"";
+        check_code = ("throw new Cell.Runtime.InvalidArgumentTypeException(" & exception_args & ");");
+
+      }
+      else {
+        args_list = append((_print_(i+1) : i <- polymorphic_args), ", ");
+        ## REPLACE THIS EXCEPTION WITH ONE THAT IS MORE INFORMATIVE,
+        ## JUST LIKE WHAT WAS DONE WITH MONOMORPHIC ARGUMENTS
+        check_code = ("throw new System.Exception(\"Invalid types for arguments " & args_list & "\");");
+      }
+
+      vars_names = [i -> "objArg" & _print_(i) : i <- polymorphic_args];
+
+      for s <- method.args_memb_preds {
+        neg_conds_strs = (
+          "!" & native_fn_name(s(i), context = :wrapper) & "(" & vars_names(i) & ")"
+          : i <- polymorphic_args
+        );
+        neg_cond_str = append(neg_conds_strs, " || ");
+        check_code = ("if (" & append(neg_conds_strs, " || ") & ")",) & indent_lines(check_code);
+      }
+
+      body = body & check_code;
+    }
 
     full_method_name = method_path & user_def_method_name(block_name, method_id);
 
@@ -70,7 +99,9 @@ implicit prg : CompiledPrg, typedefs : [TypeName -> NeType] {
     sgn = "public " & ret_val_str & " " & ext_name & "(" & args_decls & ") {";
     code = ("", sgn) & indent_lines(body) & ("}");
     bare_types = (remove_path(s) : s <- input_args_types);
-    docs = remove_path(ret_val_str) & " " & ext_name & "(" & append(bare_types, ", ") & ");";
+    expl_args_names = (if id != nothing then " " & args_names_map(value(id)) else "" : id @ i <- args_ids);
+    args_decls_docs = (bare_types(i) & expl_args_names(i) : i < |bare_types|);
+    docs = remove_path(ret_val_str) & " " & ext_name & "(" & append(args_decls_docs, ", ") & ");";
 
     return (code, (docs));
   }
@@ -108,3 +139,24 @@ String repr_to_obj(AnyLowLevelRepr repr, String expr) =
   array()             |
   object              |
   opt_tag_rec_repr()  = expr;
+
+
+Maybe[Symbol] user_name_symbol(StdVar var) =
+  var(s?) = just(s);
+
+Maybe[Symbol] user_name_symbol(LocBoolVar var) =
+  bvar(<+> s?)  = just(s),
+  bvar(<*..*>)  = nothing;
+
+Maybe[Symbol] user_name_symbol(LocIntVar var) =
+  ivar(<+> s?)  = just(s),
+  ivar(<*..*>)  = nothing;
+
+Maybe[Symbol] user_name_symbol(LocFloatVar var) =
+  fvar(<+> s?)  = just(s),
+  fvar(<*..*>)  = nothing;
+
+Maybe[Symbol] user_name_symbol(LocOptTagRecVar var) =
+  if var.id :: Symbol then just(var.id) else nothing;
+
+Nothing user_name_symbol(<FnArg, BoolFnArg, IntFnArg, FloatFnArg, OptTagRecFnArg>) = nothing;

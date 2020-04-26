@@ -24,7 +24,7 @@ namespace Cell.Runtime {
           while (!it.Done()) {
             writer.Write(entryWs);
             Obj obj = mapper(it.Get());
-            ObjPrinter.Print(obj, writer);
+            ObjPrinter.PrintNoFlush(obj, writer);
             written++;
             writer.Write(written < count ? ",\n" : "\n");
             it.Next();
@@ -72,9 +72,9 @@ namespace Cell.Runtime {
               obj1 = obj2;
               obj2 = tmp;
             }
-            ObjPrinter.Print(obj1, writer);
+            ObjPrinter.PrintNoFlush(obj1, writer);
             writer.Write(", ");
-            ObjPrinter.Print(obj2, writer);
+            ObjPrinter.PrintNoFlush(obj2, writer);
             written++;
             writer.Write(written < count || count == 1 ? ";\n" : "\n");
             it.Next();
@@ -122,12 +122,12 @@ namespace Cell.Runtime {
               if (flipCols) {
                 writer.Write(value);
                 writer.Write(", ");
-                ObjPrinter.Print(key, writer);
+                ObjPrinter.PrintNoFlush(key, writer);
                 written++;
                 writer.Write(written == 1 | written < count ? ";\n" : "\n");
               }
               else {
-                ObjPrinter.Print(key, writer);
+                ObjPrinter.PrintNoFlush(key, writer);
                 writer.Write(" -> ");
                 writer.Write(value);
                 written++;
@@ -144,16 +144,16 @@ namespace Cell.Runtime {
               Obj key = mapper(it.GetIdx());
               double value = it.GetValue();
               if (flipCols) {
-                writer.Write(value);
+                writer.Write(FloatObjPrinter.Print(value));
                 writer.Write(", ");
-                ObjPrinter.Print(key, writer);
+                ObjPrinter.PrintNoFlush(key, writer);
                 written++;
                 writer.Write(written == 1 | written < count ? ";\n" : "\n");
               }
               else {
-                ObjPrinter.Print(key, writer);
+                ObjPrinter.PrintNoFlush(key, writer);
                 writer.Write(" -> ");
-                writer.Write(value);
+                writer.Write(FloatObjPrinter.Print(value));
                 written++;
                 writer.Write(written < count ? ",\n" : "\n");
               }
@@ -168,16 +168,16 @@ namespace Cell.Runtime {
               Obj key = mapper(it.GetIdx());
               Obj value = it.GetValue();
               if (flipCols) {
-                ObjPrinter.Print(value, writer);
+                ObjPrinter.PrintNoFlush(value, writer);
                 writer.Write(", ");
-                ObjPrinter.Print(key, writer);
+                ObjPrinter.PrintNoFlush(key, writer);
                 written++;
                 writer.Write(written == 1 | written < count ? ";\n" : "\n");
               }
               else {
-                ObjPrinter.Print(key, writer);
+                ObjPrinter.PrintNoFlush(key, writer);
                 writer.Write(" -> ");
-                ObjPrinter.Print(value, writer);
+                ObjPrinter.PrintNoFlush(value, writer);
                 written++;
                 writer.Write(written < count ? ",\n" : "\n");
               }
@@ -227,29 +227,29 @@ namespace Cell.Runtime {
             Obj obj3 = mapper3(it.Get3());
 
             if (col1 == 0)
-              ObjPrinter.Print(obj1, writer);
+              ObjPrinter.PrintNoFlush(obj1, writer);
             else if (col1 == 1)
-              ObjPrinter.Print(obj2, writer);
+              ObjPrinter.PrintNoFlush(obj2, writer);
             else
-              ObjPrinter.Print(obj3, writer);
+              ObjPrinter.PrintNoFlush(obj3, writer);
 
             writer.Write(", ");
 
             if (col2 == 0)
-              ObjPrinter.Print(obj1, writer);
+              ObjPrinter.PrintNoFlush(obj1, writer);
             else if (col2 == 1)
-              ObjPrinter.Print(obj2, writer);
+              ObjPrinter.PrintNoFlush(obj2, writer);
             else
-              ObjPrinter.Print(obj3, writer);
+              ObjPrinter.PrintNoFlush(obj3, writer);
 
             writer.Write(", ");
 
             if (col3 == 0)
-              ObjPrinter.Print(obj1, writer);
+              ObjPrinter.PrintNoFlush(obj1, writer);
             else if (col3 == 1)
-              ObjPrinter.Print(obj2, writer);
+              ObjPrinter.PrintNoFlush(obj2, writer);
             else
-              ObjPrinter.Print(obj3, writer);
+              ObjPrinter.PrintNoFlush(obj3, writer);
 
             written++;
             writer.Write(written < count || count == 1 ? ";\n" : "\n");
@@ -292,9 +292,9 @@ namespace Cell.Runtime {
             writer.Write(entryWs);
             Obj obj1 = mapper(it.Get1());
             Obj obj2 = mapper(it.Get2());
-            ObjPrinter.Print(obj1, writer);
+            ObjPrinter.PrintNoFlush(obj1, writer);
             writer.Write(", ");
-            ObjPrinter.Print(obj2, writer);
+            ObjPrinter.PrintNoFlush(obj2, writer);
             written++;
             writer.Write(written < count || count == 1 ? ";\n" : "\n");
             it.Next();
@@ -338,11 +338,11 @@ namespace Cell.Runtime {
             Obj obj1 = mapper12(it.Get1());
             Obj obj2 = mapper12(it.Get2());
             Obj obj3 = mapper3(it.Get3());
-            ObjPrinter.Print(obj1, writer);
+            ObjPrinter.PrintNoFlush(obj1, writer);
             writer.Write(", ");
-            ObjPrinter.Print(obj2, writer);
+            ObjPrinter.PrintNoFlush(obj2, writer);
             writer.Write(", ");
-            ObjPrinter.Print(obj3, writer);
+            ObjPrinter.PrintNoFlush(obj3, writer);
             written++;
             writer.Write(written < count || count == 1 ? ";\n" : "\n");
             it.Next();

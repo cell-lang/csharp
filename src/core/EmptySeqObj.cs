@@ -8,10 +8,6 @@ namespace Cell.Runtime {
 
     //////////////////////////////////////////////////////////////////////////////
 
-    public override bool IsIntSeq() {
-      return true;
-    }
-
     public override Obj GetObjAt(long idx) {
       throw ErrorHandler.SoftFail();
     }

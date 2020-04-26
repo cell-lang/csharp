@@ -6,6 +6,7 @@ namespace Cell.Runtime {
   public class ParsingException : Exception {
     public int line;
     public int col;
+    public string text;
 
     public ParsingException(int line, int col) {
       this.line = line;
@@ -13,7 +14,23 @@ namespace Cell.Runtime {
     }
 
     public override string ToString() {
-      return string.Format("Parsing error at line {0}, column {1}", line, col);
+      if (text != null) {
+        if (OnlyOneLine())
+          return string.Format("Parsing error at line {0}, column {1}:\n  {2}", line, col, text);
+        else
+          return string.Format("Parsing error at line {0}, column {1}:\n\n{2}\n", line, col, text);
+      }
+      else
+        return string.Format("Parsing error at line {0}, column {1}", line, col);
+    }
+
+    private bool OnlyOneLine() {
+      if (text.Length > 120)
+        return false;
+      for (int i=0 ; i < text.Length ; i++)
+        if (text[i] == '\n')
+          return false;
+      return true;
     }
   }
 

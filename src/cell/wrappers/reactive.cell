@@ -86,10 +86,10 @@ implicit prg : CompiledPrg, block : ReactBlock {
 }
 
 
-implicit prg : CompiledPrg, block : ReactBlock, typedefs : [TypeName -> NeType] {
+implicit prg : CompiledPrg, block : ReactBlock, typedefs : [TypeName -> NeType], generated : [BasicTypeSymbol] {
   (String*, String*) input_setter(Atom id) {
     type = block.inputs[id].type;
-    inter_type = simplified_interface_type(type);
+    inter_type = interface_type(type, :input);
     // return ((), ()) if inter_type == :generic;
     input_type = input_arg_type(inter_type);
 
@@ -118,8 +118,8 @@ implicit prg : CompiledPrg, block : ReactBlock, typedefs : [TypeName -> NeType] 
   (String*, String*) output_getter(Atom id) {
     output = block.outputs[id];
     type = output.type;
-    inter_type = simplified_interface_type(type);
-    ret_type = return_value_type(inter_type);
+    inter_type = interface_type(type, :output);
+    ret_type = qualified_return_type(inter_type);
     name = safe_name(id);
     var_name = native_var_decl_name(signal_var(id), context=:wrapper);
 
@@ -146,11 +146,11 @@ implicit prg : CompiledPrg, block : ReactBlock, typedefs : [TypeName -> NeType] 
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-implicit prg : CompiledPrg, block : ReactBlock, typedefs : [TypeName -> NeType] {
+implicit prg : CompiledPrg, block : ReactBlock, typedefs : [TypeName -> NeType], generated : [BasicTypeSymbol] {
   (String*, String*) auto_method_wrapper(MethodId method_id, CompiledMethod method) {
     return ((), ()) if method_id.id?;
     name = safe_name(method_id.symbol, method_id.arity);
-    return method_wrapper(method_id, method, block.name, name, auto_class_name, "automaton.", false);
+    return method_wrapper(method_id, method, block.name, name, auto_class_name, "automaton.");
   }
 }
 
@@ -167,7 +167,7 @@ implicit prg : CompiledPrg, block : ReactBlock, typedefs : [TypeName -> NeType] 
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-implicit prg : CompiledPrg, typedefs : [TypeName -> NeType] {
+implicit prg : CompiledPrg, typedefs : [TypeName -> NeType], generated : [BasicTypeSymbol] {
   (String, Text, String*) react_auto_wrapper(ReactBlock block) {
     ord_inputs = block.ord_inputs;
     ord_outputs = (o : o <- block.ord_outputs, not block.inputs(o, _));

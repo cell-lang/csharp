@@ -143,18 +143,6 @@ namespace Cell.Runtime {
       newLine = false;
     }
 
-    public void Write(double value) {
-      string str = value.ToString();
-      writer.Write(str);
-      newLine = false;
-      for (int i=0 ; i < str.Length ; i++) {
-        char ch = str[i];
-        if (ch == '.' | ch == 'e')
-          return;
-      }
-      writer.Write(".0");
-    }
-
     private const int SPACES_BLOCK_SIZE = 20;
     private static readonly char[] spaces = Array.Repeat(' ', SPACES_BLOCK_SIZE);
 

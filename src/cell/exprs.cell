@@ -90,6 +90,8 @@ implicit context : NativeContext {
       is_int(e?)            = native_expr(e) & ".IsInt()",
       is_float(e?)          = native_expr(e) & ".IsFloat()",
       is_ne_seq(e?)         = native_expr(e) & ".IsNeSeq()",
+      is_ne_int_seq(e?)     = native_expr(e) & ".IsNeIntSeq()",
+      is_ne_float_seq(e?)   = native_expr(e) & ".IsNeFloatSeq()",
       is_ne_set(e?)         = native_expr(e) & ".IsNeSet()",
       is_ne_map(e?)         = native_expr(e) & ".IsNeMap()",
       is_ne_bin_rel(e?)     = native_expr(e) & ".IsNeBinRel()",
@@ -271,12 +273,7 @@ implicit context : NativeContext {
     float_bits(e?)        = float_obj_class & ".Bits(" & native_expr(e) & ")",
     round(e?)             = float_obj_class & ".Round(" & native_expr(e) & ")",
     upcast_int32(e?)      = parenthesize("(long) " & native_expr(e, true), parenthesized),
-
     surr_to_int_value()   = native_method_call_expr(expr.store, "SurrToValue", (expr.surrogate)),
-
-  // surr_to_int_value(store: AnyValueStoreId, surrogate: Int32Var),
-  // native_method_call(var, expr.store, "SurrToValue", (expr.surrogate)),
-
     rand_nat(e?)          = miscellanea_class & ".RandNat(" & native_expr(e) & ")",
     unique_nat            = miscellanea_class & ".UniqueNat()",
     ticks                 = io_class & ".UnixTimeMs()";

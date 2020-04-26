@@ -10,83 +10,32 @@ implicit prg : CompiledPrg {
   ];
 }
 
+////////////////////////////////////////////////////////////////////////////////
 
-implicit prg : CompiledPrg, taken_names : [String] {
-  String safe_class_name(DeclInterType inter_type, Bool retry, Maybe[Nat] unique_id) {
-    name = default_name(inter_type, retry);
-    name = take(name, 60);
-    name = name & "_" & printed(value(unique_id)) if unique_id != nothing;
-    while taken_names(name) or is_reserved(name) or safe_block_class_names(_, name)
-      name = name & "_";
-    return name;
+[Symbol -> String] adjusted_unambiguous_lower_camel_case_names([Symbol] symbols) {
+  nice_field_names = [s -> safe_lower_camel_case(s) : s <- symbols];
+  conflicting_names = duplicate_values(nice_field_names);
+  unambiguous_names = [s -> n : s n <- nice_field_names, not conflicting_names(n)];
+  for n <- conflicting_names {
+    conflicting_symbols = isort([s : s <- nice_field_names(?, n)]);
+    for s @ i <- conflicting_symbols
+      unambiguous_names = _put_(unambiguous_names, s, n & "_" & _print_(i));
   }
-
-
-  String default_name(InterType, Bool retry) =
-    bool              = "Bool",
-    integer           = "Long",
-    float             = "Double",
-    string            = "String",
-    date              = "Date",
-    time              = "DateTime",
-    symbol(s?)        = upper_camel_case(s),
-    tuple(ts?)        = "(" & append((default_name(t, retry) : t <- ts), ", ") & ")",
-    record(fs?)       = append((upper_camel_case(l) : l <- isort(keys(fs))), "_"),
-    named(ts?)        = default_name(ts, retry),
-    union(ts?)        = append((default_name(t, retry) : t <- isort(ts)), "_"),
-    seq(t?)           = default_name(t, retry) & "_Seq",
-    set(t?)           = default_name(t, retry) & "_Set",
-    tagged(s?, t?)    = tagged_default_name(t, s, retry),
-    generic           = "String";
-
-
-  String tagged_default_name(InterType type, Symbol tag, Bool retry) {
-    name = upper_camel_case(tag);
-    if retry {
-      suffix = match (type)
-        tuple(ts?)  = append((default_name(t, retry) : t <- ts), "_"),
-        _           = default_name(type, retry);
-      name = name & "_" & suffix;
-    }
-    return name;
-  }
-
-
-
-
-  String default_name(BasicTypeSymbol, Bool) =
-    type_symbol(s?)         = upper_camel_case(s),
-    schema_type_symbol(s?)  = upper_camel_case(s),
-    builtin_type_symbol()   = undefined;
-
-
-  String default_name(ParTypeSymbol type_symb, Bool retry) {
-    args_names = (
-      if t != empty_type
-        then default_name(interface_type(t, typedefs = prg.typedefs), retry)
-        else "Void"
-      : t <- type_symb.params
-    );
-    return default_name(type_symb.symbol, retry) & "_" & append(args_names, "_");
-  }
+  return unambiguous_names;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-String safe_lower_camel_case(Symbol symb) = safe_lower_camel_case(symb, false);
-
-String safe_lower_camel_case(Symbol symb, Bool keep_underscore) {
+String safe_lower_camel_case(Symbol symb) {
   name = lower_camel_case(symb);
-  name = name & "_" if is_reserved(name);
+  name = "_" & name if is_reserved(name);
   return name;
 }
 
 
-String safe_upper_camel_case(Symbol symb) = safe_upper_camel_case(symb, false);
-
-String safe_upper_camel_case(Symbol symb, Bool keep_underscore) {
+String safe_upper_camel_case(Symbol symb) {
   name = upper_camel_case(symb);
-  name = name & "_" if is_reserved(name);
+  name = "_" & name if is_reserved(name);
   return name;
 }
 
@@ -210,3 +159,9 @@ Bool is_reserved(String id) {
 [String] runtime_classes = [
   // No need to worry here, they're in a different namespace
 ];
+
+////////////////////////////////////////////////////////////////////////////////
+
+String gen_class_name(Symbol symb) = upper_camel_case(symb);
+
+String decl_type_export_funct_name(Symbol symb) = "Export_" & gen_class_name(symb);

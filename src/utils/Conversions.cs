@@ -8,11 +8,18 @@ using StringReader    = System.IO.StringReader;
 namespace Cell.Runtime {
   public class Conversions {
     public static Obj ConvertText(string text) {
-      TokenStream tokens = new Tokenizer(new CharStream(new StringReader(text)));
-      Parser parser = new Cell.Generated.Static.Parser(tokens);
-      Obj obj = parser.ParseObj();
-      parser.CheckEof();
-      return obj;
+      try {
+        TokenStream tokens = new Tokenizer(new CharStream(new StringReader(text)));
+        Parser parser = new Cell.Generated.Static.Parser(tokens);
+        Obj obj = parser.ParseObj();
+        parser.CheckEof();
+        return obj;
+      }
+      catch (ParsingException e) {
+        if (e.text == null)
+          e.text = text;
+        throw e;
+      }
     }
 
     public static string ExportAsText(Obj obj) {
@@ -80,6 +87,22 @@ namespace Cell.Runtime {
       return bools;
     }
 
+    public static byte[] ToByteArray(Obj obj) {
+      int len = obj.GetSize();
+      byte[] array = new byte[len];
+      for (int i=0 ; i < len ; i++)
+        array[i] = (byte) obj.GetLongAt(i);
+      return array;
+    }
+
+    public static int[] ToIntArray(Obj obj) {
+      int len = obj.GetSize();
+      int[] array = new int[len];
+      for (int i=0 ; i < len ; i++)
+        array[i] = (int) obj.GetLongAt(i);
+      return array;
+    }
+
     public static long[] ToLongArray(Obj obj) {
       if (obj.IsSeq()) {
         long[] array = obj.GetLongArray();
@@ -133,6 +156,24 @@ namespace Cell.Runtime {
       for (int i=0 ; i < len ; i++)
         strs[i] = ExportAsText(elts[i]);
       return strs;
+    }
+
+    ////////////////////////////////////////////////////////////////////////////
+
+    public static Obj FromByteArray(byte[] array) {
+      int len = array.Length;
+      byte[] copy = new byte[len];
+      for (int i=0 ; i < len ; i++)
+        copy[i] = array[i];
+      return Builder.CreateSeq(copy);
+    }
+
+    public static Obj FromIntArray(int[] array) {
+      int len = array.Length;
+      int[] copy = new int[len];
+      for (int i=0 ; i < len ; i++)
+        copy[i] = array[i];
+      return Builder.CreateSeq(copy);
     }
   }
 }

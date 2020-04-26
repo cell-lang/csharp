@@ -1,5 +1,6 @@
 implicit prg : CompiledPrg, rel_vars_perm_map : [DBSymbol -> [RelVar -> [+Nat -> Nat]]],
-                            gen_memb_testers_ids : [DBSymbol -> [MethodId]], debug_mode : Bool {
+    generated : [BasicTypeSymbol], debug_mode : Bool {
+
   [String -> String*] generated_code(Bool include_runtime) {
     assert |program_symbols| <= 64 * 1024; ## IMPLEMENT PROPERLY
 
@@ -9,8 +10,9 @@ implicit prg : CompiledPrg, rel_vars_perm_map : [DBSymbol -> [RelVar -> [+Nat ->
     return [
       "generated.cs" -> flatten(generated_content),
       "runtime.cs"   -> flatten(runtime_content(has_static_autos)) if include_runtime,
-      "facades.cs"   -> flatten(wrappers_content) if not has_main,
-      "facades.txt"  -> flatten(facades_docs) if not has_main
+      "typedefs.cs"  -> flatten(data_exchange_types) if not has_main and data_exchange_types != (),
+      "automata.cs"  -> flatten(wrappers_content) if not has_main,
+      "automata.txt" -> flatten(automata_docs) if not has_main
     ];
 
 
@@ -131,47 +133,52 @@ implicit prg : CompiledPrg, rel_vars_perm_map : [DBSymbol -> [RelVar -> [+Nat ->
 
     ////////////////////////////////////////////////////////////////////////////
 
-    Text wrappers_content = (
-      "#pragma warning disable 162, 164, 168, 169, 219",
-      "",
-      "namespace Cell.Facades {",
-      ( "// Interface types", "",
-        interface_types_decls, "", "",
-        "// Facades for reactive automata", "",
-        react_auto_wrappers, "", "",
-        "// Facades for relational automata", "",
-        rel_auto_wrappers, "", ""
-      ),
-      "}",
-      "",
-      "",
-      "namespace Cell.Generated {",
-      ( "// Conversion functions for interface types", "",
-        decl_types_conv_functs
-      ),
-      "}"
-    );
-
-
-    // Interface type declarations, for both input and output
-    Text interface_types_decls {
-      input_types = [decl : _ decl <- input_types_decls];
-      output_types = [decl : _ decl <- output_types_decls];
-      return insert_seps(isort(input_types & output_types), ("", ""));
+    // Generated interface type declarations
+    Text data_exchange_types {
+      decls = gen_inter_types_decls(typedefs = prg.typedefs);
+      return () if decls == ();
+      return (
+        "namespace Cell.Typedefs {",
+        decls,
+        "}"
+      );
     }
 
+    Text wrappers_content {
+      content = (
+        "#pragma warning disable 162, 164, 168, 169, 219",
+        "",
+        "namespace Cell.Automata {"
+      );
 
-    Text decl_types_conv_functs {
-      types = isort(declared_types);
+      if rel_auto_wrappers != ()
+        content = (content | ("// Facades for relational automata", "", rel_auto_wrappers));
+
+      if react_auto_wrappers != ()
+        content = (content | "// Facades for reactive automata", "", react_auto_wrappers);
+
+      content = (content | "}");
+
       let typedefs = prg.typedefs {
-        conv_fns = (
-          "static class Converters {",
-          insert_seps((decl_type_import_functions(t) : t <- types), ("")), "", "",
-          insert_seps((decl_type_export_function(t) : t <- types), ("")),
-          "}"
-        );
+        types_decls, hierarchy = inter_types_decls;
+        if types_decls != [] {
+          conv_fns = decl_types_export_functs(types_decls, hierarchy);
+          content = (
+            content |
+            "",
+            "",
+            "namespace Cell.Generated {",
+            ( "// Conversion functions for declared interface types",
+              "public static class Convert {",
+              conv_fns,
+              "}"
+            ),
+            "}"
+          );
+        }
       }
-      return conv_fns;
+
+      return content;
     }
 
 
@@ -185,54 +192,36 @@ implicit prg : CompiledPrg, rel_vars_perm_map : [DBSymbol -> [RelVar -> [+Nat ->
     Text rel_auto_wrappers {
       let typedefs = prg.typedefs {
         react_auto_wrappers = (react_auto_wrapper(b) : b <- ord_react_blocks);
-        rel_auto_wrappers = (
-          static_auto_wrapper(b, lookup(gen_memb_testers_ids, b.name, [])) : b <- ord_static_blocks
-        );
+        rel_auto_wrappers = (static_auto_wrapper(b) : b <- ord_static_blocks);
       }
       return (code : _, code, _ <- rel_auto_wrappers);
     }
 
     ////////////////////////////////////////////////////////////////////////////
 
-    Text facades_docs = (
-      insert_seps(isort(interface_types_docs), ("")), "", "",
-      react_auto_facades_docs, "", "",
-      rel_auto_facades_docs
-    );
+    Text automata_docs {
+      docs = ();
 
-
-    Text react_auto_facades_docs {
       let typedefs = prg.typedefs
-        docs = (react_auto_wrapper(b)(2) : b <- ord_react_blocks);
+        all_docs = (static_auto_wrapper(b)(2) : b <- ord_static_blocks);
+      rel_auto_docs = insert_seps(all_docs, (""));
+
+      if rel_auto_docs != () {
+        docs = (docs | "// Facades for relational automata", "");
+        docs = docs & rel_auto_docs;
+      }
+
+      let typedefs = prg.typedefs
+        react_auto_docs = (react_auto_wrapper(b)(2) : b <- ord_react_blocks);
+
+      if react_auto_docs != () {
+        docs = (docs | "") if docs != ();
+        docs = (docs | "// Facades for reactive automata", "");
+        docs = docs & react_auto_docs;
+      }
+
       return docs;
     }
-
-
-    Text rel_auto_facades_docs {
-      let typedefs = prg.typedefs
-        all_docs = ({
-          _, _, docs = static_auto_wrapper(b, lookup(gen_memb_testers_ids, b.name, []));
-          return docs;
-        } : b <- ord_static_blocks);
-      return insert_seps(all_docs, (""));
-    }
-
-          // wrappers = [name & ".java" -> src_code : (name, src_code, _) <- react_auto_wrappers] &
-    // let prg = prg, typedefs = prg.typedefs {
-    //   react_auto_wrappers = (react_auto_wrapper(b) : b <- ord_react_blocks);
-    //   rel_auto_wrappers = (
-    //     static_auto_wrapper(b, lookup(gen_memb_testers_ids, b.name, [])) : b <- ord_static_blocks
-    //   );
-    //   inter_types_decls = interface_types_decls;
-    //   inter_types_docs = interface_types_docs;
-
-    //   decl_types_conv_functs = [
-    //     ("") & decl_type_import_functions(t) & ("") & decl_type_export_function(t)
-    //     : t <- declared_types
-    //   ];
-    // }
-
-    // decl_types_conv_functs = join((("", "") & t : t <- isort(decl_types_conv_functs)));
   }
 }
 
@@ -268,27 +257,6 @@ String* private_class_def(String* class_def) = (
 );
 
 
-// String* gen_env_decl(CompiledPrg prg) {
-//   all_impl_args = union([p.impl_args : p <- prg.procs]);
-
-//   let context = :core {
-//     env_decl = ("static class Env {") &
-//                ( "  public Obj " & native_var_decl_name(impl_arg(bare_id(a))) & ";"
-//                  : a <- isort(all_impl_args)
-//                );
-//   }
-
-//   semi_consts_cache_vars = isort([p.name : p <- prg.procs, p.cached and p.impl_args != []]);
-//   semi_consts_cache_vars_decls = ("  public Obj " & memo_var_name(v, context=:core) & ";" : v <- semi_consts_cache_vars);
-//   env_decl = (env_decl | "") & semi_consts_cache_vars_decls if semi_consts_cache_vars_decls != ();
-
-//   env_decl = env_decl & ("};");
-
-
-//   return env_decl;
-// }
-
-
 String native_int_type(Int min_val, Int max_val) {
   for lb, up, type_name <- type_bounds
     return type_name if min_val >= lb and max_val < up;
@@ -301,12 +269,6 @@ String native_int_type(Int min_val, Int max_val) {
     (-pow(2, 31),   pow(2, 31),   "int")
   );
 }
-
-
-// String* gen_int_seqs_code(Int+* int_seqs) {
-//   defs = (("", "") & gen_int_seq_code(s, i) : s @ i <- int_seqs);
-//   return join(defs);
-// }
 
 
 String* gen_int_seq_code(Int+ int_seq, Nat seq_id) {
@@ -483,9 +445,9 @@ implicit prg : CompiledPrg, rel_vars_perm_map : [DBSymbol -> [RelVar -> [+Nat ->
       obj_proc_def()    = native_type(proc_def.ret_val_repr),
       bool_proc_def()   = "bool";
 
-    String visibility(ProcDef) =
+    String visibility(ProcDef pd) =
       bool_proc_def()   = "public ",
-      obj_proc_def()    = "";
+      obj_proc_def()    = if pd.name :: ConvFnId then "public " else "";
 
     String* gen_args_list(ObjProcDef pd) {
       args = (native_var_type(v) & " " & native_var_decl_name(v) : v <- pd.args);

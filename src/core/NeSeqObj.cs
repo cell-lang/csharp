@@ -4,6 +4,24 @@ namespace Cell.Runtime {
 
     //////////////////////////////////////////////////////////////////////////////
 
+    public override bool IsNeIntSeq() {
+      int len = GetSize();
+      for (int i=0 ; i < len ; i++)
+        if (!GetObjAt(i).IsInt())
+          return false;
+      return true;
+    }
+
+    public override bool IsNeFloatSeq() {
+      int len = GetSize();
+      for (int i=0 ; i < len ; i++)
+        if (!GetObjAt(i).IsFloat())
+          return false;
+      return true;
+    }
+
+    //////////////////////////////////////////////////////////////////////////////
+
     public override bool[] GetBoolArray(bool[] buffer) {
       int len = GetSize();
       if (buffer == null)

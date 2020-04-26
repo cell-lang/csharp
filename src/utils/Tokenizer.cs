@@ -604,7 +604,7 @@ namespace Cell.Runtime {
     }
 
     private static int HexDigitValue(int ch) {
-      return ch - (IsDigit(ch) ? '0' : 'a');
+      return ch - (IsDigit(ch) ? '0' : 'a' - 10);
     }
   }
 }

@@ -84,8 +84,8 @@ implicit context : NativeContext {
   String native_var_name(StreamVar v)     = "stream" & printed(bare_id_2(v));
 
   String native_var_name(ArrayVar var) =
-    avar()              = "y" & printed(var.id) & "_" & native_type(var.repr),
-    shadow_array_var()  = printed(var.id) & "_Y_" & native_type(var.repr);
+    avar()              = "y" & printed(var.id) & "_" & native_type(var.repr, context = :core),
+    shadow_array_var()  = printed(var.id) & "_Y_" & native_type(var.repr, context = :core);
 
   String native_var_name(TableItVar v) {
     prefix = match (v.arity, v.symmetric)
@@ -128,9 +128,10 @@ implicit context : NativeContext {
       else "";
 
     return match (var)
-      var(<+> a?)                   = if a == hidden_var_0_id then "h0"               else
-                                      if a == hidden_var_1_id then "h1"               else
-                                                                   _print_(a) & "_V",
+      var(<+> a?)                   = { match (hidden_var_id(a))
+                                          just(n?)  = "h" & _print_(n),
+                                          nothing   = _print_(a) & "_V"
+                                      },
       fn_arg(<*..*> n?)             = "a" & printed(n),
       impl_arg(<+> a?)              = prefix & _print_(a) & "_V",
       capt_var(<*..*> n?)           = "capt_var_"  & printed(n),
@@ -156,7 +157,10 @@ implicit context : NativeContext {
   String native_var_name(BoolVar var, Bool add_prefix) {
     prefix = if add_prefix then "this." else "";
     return match (var)
-      bvar(<+> s?)                                  = printed(s) & "_Vb",
+      bvar(<+> s?)                                  = { match (hidden_var_id(s))
+                                                          just(n?)  = "hb" & _print_(n),
+                                                          nothing   = printed(s) & "_Vb"
+                                                      },
       bvar(<*..*> n?)                               = "b" & printed(n),
       bool_arg(n?)                                  = "a" & printed(n),
       cond_value_var(n?)                            = prefix & "cond_" & printed(n),
@@ -362,11 +366,11 @@ implicit context : NativeContext {
 
 
   String native_var_type(ObjVar)            = qualify("Obj");
-  String native_var_type(IntVar)            = qualify("long");
-  String native_var_type(Int32Var)          = qualify("int");
-  String native_var_type(MembIntVectVar)    = qualify("long[]");
-  String native_var_type(BoolVar)           = qualify("bool");
-  String native_var_type(FloatVar)          = qualify("double");
+  String native_var_type(IntVar)            = "long";
+  String native_var_type(Int32Var)          = "int";
+  String native_var_type(MembIntVectVar)    = "long[]";
+  String native_var_type(BoolVar)           = "bool";
+  String native_var_type(FloatVar)          = "double";
 
   String native_var_type(OptTagRecVar var) = opt_tag_rec_name(var.tag, var.index);
 
@@ -429,7 +433,7 @@ implicit context : NativeContext {
     String native_fn_name(ProcSymbol proc_symb) {
       bare_symb = match (proc_symb) proc_symbol(s?) = s;
       name = upper_camel_case(bare_symb) & "_P";
-      if proc_symb == proc_symbol(:error)
+      if proc_symb == proc_symbol(:error) or proc_symb == proc_symbol(:save)
         name = "AutoProcs." & name;
       else if builtin_procs_map(proc_symb, _)
         name = "Procs." & name;
