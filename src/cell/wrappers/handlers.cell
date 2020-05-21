@@ -37,8 +37,7 @@ implicit prg : CompiledPrg, typedefs : [TypeName -> NeType], generated : [BasicT
           cond_var = fields_cond_vars(i);
           if cond_var != nothing {
             if is_boxed_if_opt(it) {
-              unique_id = _print_(_counter_(:any_value_will_do));
-              tmp_var = "var_" & unique_id;
+              tmp_var = new_unique_var(:unused);
               nonboxed_type = input_arg_type(it, false);
               non_null_conv_code = (
                 nonboxed_type & " " & tmp_var & " = (" & nonboxed_type & ") " & args_names(i) & ";",

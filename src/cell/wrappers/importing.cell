@@ -19,9 +19,8 @@ implicit prg : CompiledPrg {
 
 
   String* tuple_import_code(InterType+ types, String expr, String action_prefix) {
-    unique_id = printed(_counter_(:any_value_will_do));
-
-    field_vars = ("field" & printed(i) & "_" & unique_id : t @ i <- types);
+    field_vars_base_name = new_unique_var(:unused);
+    field_vars = (field_vars_base_name & "_" & printed(i) : t @ i <- types);
     fields_code = (
         ("Cell.Runtime.Obj " & field_vars(i) & ";",) &
         import_code(t, expr & ".Item" & printed(i+1), field_vars(i) & " = ")
@@ -37,9 +36,8 @@ implicit prg : CompiledPrg {
   String* record_import_code([+Symbol -> InterType] fields, String expr, String action_prefix) {
     ord_fields = ((l, fields(l)) : l <- sort_record_labels(keys(fields)));
 
-    unique_id = printed(_counter_(:any_value_will_do));
-
-    field_vars = ("field" & printed(i) & "_" & unique_id : l, t @ i <- ord_fields);
+    field_vars_base_name = new_unique_var(:unused);
+    field_vars = (field_vars_base_name & "_" & printed(l) : l, t @ i <- ord_fields);
     field_names = adjusted_unambiguous_lower_camel_case_names(set(left(unzip(ord_fields))));
 
     fields_code = (
@@ -64,10 +62,9 @@ implicit prg : CompiledPrg {
       return (action_prefix & "Cell.Runtime.Conversions.FromIntArray(" & expr & ");");
     }
     else {
-      unique_id = printed(_counter_(:any_value_will_do));
-      expr_var = "expr" & unique_id;
-      idx_var = "idx" & unique_id;
-      array_var = "array" & unique_id;
+      expr_var  = new_unique_var(:unused);
+      idx_var   = new_unique_var(:unused);
+      array_var = new_unique_var(:unused);
 
       elem_code = import_code(elem_type, expr_var & "[" & idx_var & "]", array_var & "[" & idx_var & "] = ");
 
@@ -86,10 +83,9 @@ implicit prg : CompiledPrg {
 
 
   String* set_import_code(InterType elem_type, String expr, String action_prefix) {
-    unique_id = printed(_counter_(:any_value_will_do));
-    expr_var = "expr" & unique_id;
-    idx_var = "idx" & unique_id;
-    array_var = "array" & unique_id;
+    expr_var  = new_unique_var(:unused);
+    idx_var   = new_unique_var(:unused);
+    array_var = new_unique_var(:unused);
 
     elem_code = import_code(elem_type, expr_var & "[" & idx_var & "]", array_var & "[" & idx_var & "] = ");
 
@@ -107,15 +103,15 @@ implicit prg : CompiledPrg {
 
 
   String* bin_rel_import_code(InterType left_type, InterType right_type, String expr, String action_prefix) {
-    unique_id = printed(_counter_(:any_value_will_do));
-    idx_var = "idx_" & unique_id;
-    entry_var = "entry_" & unique_id;
-    idx_var = "idx_" & unique_id;
-    left_var = "left_arg_" & unique_id;
-    right_var = "right_arg_" & unique_id;
-    left_col_var = "left_col_" & unique_id;
-    right_col_var = "right_col_" & unique_id;
-    left_type_str = input_arg_type(left_type);
+    idx_var       = new_unique_var(:unused);
+    entry_var     = new_unique_var(:unused);
+    idx_var       = new_unique_var(:unused);
+    left_var      = new_unique_var(:unused);
+    right_var     = new_unique_var(:unused);
+    left_col_var  = new_unique_var(:unused);
+    right_col_var = new_unique_var(:unused);
+
+    left_type_str  = input_arg_type(left_type);
     right_type_str = input_arg_type(right_type);
 
     code = (
@@ -140,16 +136,16 @@ implicit prg : CompiledPrg {
 
 
   String* tern_rel_import_code(InterType type1, InterType type2, InterType type3, String expr, String action_prefix) {
-    unique_id = printed(_counter_(:any_value_will_do));
-    idx_var = "idx_" & unique_id;
-    entry_var = "entry_" & unique_id;
-    idx_var = "idx_" & unique_id;
-    arg1_var = "arg1_" & unique_id;
-    arg2_var = "arg2_" & unique_id;
-    arg3_var = "arg3_" & unique_id;
-    col1_var = "col1_" & unique_id;
-    col2_var = "col2_" & unique_id;
-    col3_var = "col3_" & unique_id;
+    idx_var   = new_unique_var(:unused);
+    entry_var = new_unique_var(:unused);
+    idx_var   = new_unique_var(:unused);
+    arg1_var  = new_unique_var(:unused);
+    arg2_var  = new_unique_var(:unused);
+    arg3_var  = new_unique_var(:unused);
+    col1_var  = new_unique_var(:unused);
+    col2_var  = new_unique_var(:unused);
+    col3_var  = new_unique_var(:unused);
+
     type1_str = input_arg_type(type1);
     type2_str = input_arg_type(type2);
     type3_str = input_arg_type(type3);
@@ -180,8 +176,7 @@ implicit prg : CompiledPrg {
 
   String* tagged_value_import_code(TaggedInterType tagged_type, String expr, String action_prefix) {
     return import_code(:generic, expr, action_prefix) if tagged_type == :generic;
-    unique_id = printed(_counter_(:any_value_will_do));
-    out_var = "var_" & unique_id;
+    out_var = new_unique_var(:unused);
     code = ("Cell.Runtime.Obj " & out_var & ";");
     code = code & import_code(untagged_type(tagged_type), expr, out_var & " = ");
     tag = object(type_tag(tagged_type));
@@ -193,8 +188,7 @@ implicit prg : CompiledPrg {
   String* optional_value_import_code(InterType inner_type, String expr, String action_prefix) {
     if is_boxed_if_opt(inner_type) {
       unboxed_type = input_arg_type(inner_type);
-      unique_id = _print_(_counter_(:any_value_will_do));
-      adj_expr = "var_" & unique_id;
+      adj_expr = new_unique_var(:unused);
       code = (unboxed_type & " " & adj_expr & " = (" & unboxed_type & ") " & expr & ";");
     }
     else {
@@ -202,8 +196,7 @@ implicit prg : CompiledPrg {
       adj_expr = expr;
     }
 
-    unique_id = _print_(_counter_(:any_value_will_do));
-    tmp_var = "var_" & unique_id;
+    tmp_var = new_unique_var(:unused);
     code = (code | "Cell.Runtime.Obj " & tmp_var & ";");
     code = code & import_code(inner_type, adj_expr, tmp_var & " = ");
 

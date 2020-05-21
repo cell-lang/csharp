@@ -27,8 +27,7 @@ implicit prg : CompiledPrg {
       bool    = (action_prefix & expr & ".GetInnerObj().IsSymb(Cell.Runtime.SymbObj.TrueSymbId);"),
       integer = (action_prefix & expr & ".GetInnerLong();"),
       float   = (action_prefix & expr & ".GetInnerObj().GetDouble();"),
-      _       = { unique_id = _counter_(:any_value_will_do);
-                  var = "var_" & printed(unique_id);
+      _       = { var = new_unique_var(:unused);
                   instr = "Cell.Runtime.Obj " & var & " = " & expr & ".GetInnerObj();";
                   return (instr) & export_code(inner_type, var, action_prefix);
                 };
@@ -46,8 +45,7 @@ implicit prg : CompiledPrg {
 
   String* tagged_type_export_code(TaggedInterType tagged_type, String expr, String action_prefix) {
     return export_code(:generic, expr, action_prefix) if tagged_type == :generic;
-    unique_id = printed(_counter_(:any_value_will_do));
-    in_var = "var_" & unique_id;
+    in_var = new_unique_var(:unused);
     instr = "Cell.Runtime.Obj " & in_var & " = " & expr & ".GetInnerObj();";
     untagged_type = untagged_type(tagged_type);
     return (instr) & export_code(untagged_type, in_var, action_prefix);
@@ -55,10 +53,9 @@ implicit prg : CompiledPrg {
 
 
   String* tuple_export_code(InterType+ types, String expr, String action_prefix) {
-    unique_id = printed(_counter_(:any_value_will_do));
-    tmp_var = "obj_item_" & unique_id;
-
-    item_vars = ("item_" & unique_id & "_" & _print_(i + 1) : i < |types|);
+    tmp_var = new_unique_var(:unused);
+    item_vars_base_name = new_unique_var(:unused);
+    item_vars = (item_vars_base_name & "_" & _print_(i + 1) : i < |types|);
     item_types = (qualified_return_type(t) : t <- types);
 
     asgnm_code = join(({
@@ -79,9 +76,8 @@ implicit prg : CompiledPrg {
   String* record_export_code([+Symbol -> InterType] fields, String expr, String action_prefix) {
     ord_fields = ((l, fields(l)) : l <- sort_record_labels(keys(fields)));
 
-    unique_id = printed(_counter_(:any_value_will_do));
-
-    field_vars = ("field_" & unique_id & "_" & _print_(l) : l, t @ i <- ord_fields);
+    field_vars_base_name = new_unique_var(:unused);
+    field_vars = (field_vars_base_name & "_" & _print_(l) : l, t @ i <- ord_fields);
     field_names = adjusted_unambiguous_lower_camel_case_names(set(left(unzip(ord_fields))));
 
     asgnm_code = join(({

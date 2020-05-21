@@ -38,7 +38,7 @@ implicit prg : CompiledPrg, context : NativeContext, debug_mode : Bool {
     repeat(body?)         = native_repeat_code(body, block_id),
     foreach()             = native_foreach_code(instr, block_id),
     break_loop            = ("break;"),
-    execute_block(body?)  = { new_block_id = _counter_(:any_value_will_do);
+    execute_block(body?)  = { new_block_id = new_unique_id(:unused);
                               body_code = native_code(body, just(new_block_id));
                               block_exit_point = block_label(new_block_id) & ":;";
                               return ("{") & indent_lines(body_code) & ("}", block_exit_point);
@@ -335,7 +335,7 @@ implicit prg : CompiledPrg, context : NativeContext, debug_mode : Bool {
 
 
     (String*, AnyClsVar) gen_cls_info(LambdaExpr lambda) {
-      id = _counter_(:any_value_will_do);
+      id = new_unique_id(:unused);
       var = cls_var(id);
       name = native_expr(var);
 

@@ -26,7 +26,8 @@ implicit typedefs : [TypeName -> NeType] {
 }
 
 
-String new_unique_var(<unused>) = "unique_var_" & _print_(_counter_(nothing));
+String new_unique_var(<unused>) = "uniqueVar_" & _print_(new_unique_id(:unused));
+Nat new_unique_id(<unused>) = _counter_(:unused);
 
 
 // String symb_idx_base_name(<Atom, SymbObj> symb) = symb_idx_name(symb, context=:core);
